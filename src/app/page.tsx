@@ -2,7 +2,6 @@
 
 import SponsorContractsListView from "./components/sponsor/SponsorContractsListView";
 import DisputeListView from "./components/sponsor/DisputeListView";
-import WaitingDisputeSponsorsListView from "./components/sponsor/WaitingDisputeSponsorsListView";
 import Button from "./components/common/Button";
 import { useRouter } from "next/navigation";
 
@@ -35,10 +34,6 @@ export default function Home() {
             <div className="flex gap-8 my-8">
                 <SponsorContractsListView />
                 <DisputeListView />
-            </div>
-
-            <div className="flex gap-8 my-8">
-                <WaitingDisputeSponsorsListView />
             </div>
         </main>
     );

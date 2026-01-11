@@ -105,40 +105,23 @@ export default function DisputeListView() {
             return;
         }
 
-        await fetch("/api/disputes/register-sponsor", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-                contract_id: selectedDispute.contract_id,
-                pk_sponsor: pk,
-            }),
-        });
-
         const isVendor = sponsorType === "vendor";
-        const sendFee = isVendor ? sendSvFee : sendSbFee;
-        const disputeContract = await sendFee(
-            pk,
-            selectedDispute.optimistic_smart_contract
-        );
+        let disputeContractAddress: string | undefined;
 
         if (isVendor) {
-            await fetch("/api/disputes/set-contract", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                    contract_id: selectedDispute.contract_id,
-                    dispute_smart_contract: disputeContract,
-                }),
-            });
+            disputeContractAddress = await sendSvFee(
+                pk,
+                selectedDispute.optimistic_smart_contract
+            );
+        } else {
+            await sendSbFee(pk, selectedDispute.optimistic_smart_contract);
         }
 
         alert(
             `✅ Sponsor ${sponsorType === "buyer" ? "du buyer" : "du vendor"} enregistré pour le contrat ${selectedDispute.contract_id}!${
-                isVendor ? `\n📍 Contrat de dispute déployé à: ${disputeContract}` : ""
+                isVendor && disputeContractAddress
+                    ? `\n📍 Contrat de dispute déployé à: ${disputeContractAddress}`
+                    : ""
             }`
         );
 
