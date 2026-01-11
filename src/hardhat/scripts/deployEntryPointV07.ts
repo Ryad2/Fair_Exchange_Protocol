@@ -1,0 +1,131 @@
+import { ethers } from "hardhat";
+import fs from "fs";
+import path from "path";
+
+/**
+ * Script pour déployer EntryPoint v0.7 (nécessaire pour PackedUserOperation)
+ * Utilise le contrat EntryPoint v0.7 depuis bundler-alto
+ */
+async function main() {
+    const [deployer] = await ethers.getSigners();
+
+    console.log("=".repeat(80));
+    console.log("🚀 DÉPLOIEMENT ENTRYPOINT V0.7 (Pour PackedUserOperation)");
+    console.log("=".repeat(80));
+    console.log("");
+    console.log("Deployer:", await deployer.getAddress());
+    console.log("");
+
+    // Chemin vers le contrat EntryPoint v0.7
+    const entryPointV07Path = path.join(
+        __dirname,
+        "../../../bundler-alto/contracts/src/v07/EntryPoint.sol"
+    );
+
+    if (!fs.existsSync(entryPointV07Path)) {
+        throw new Error(
+            `EntryPoint v0.7 not found at ${entryPointV07Path}. Make sure bundler-alto contracts are available.`
+        );
+    }
+
+    console.log("📋 Déploiement du contrat EntryPoint v0.7...");
+    
+    // Compiler le contrat EntryPoint v0.7
+    // Note: On doit utiliser hardhat pour compiler avec les bonnes remappings
+    const EntryPointFactory = await ethers.getContractFactory(
+        "contracts/src/v07/EntryPoint.sol:EntryPoint",
+        {
+            // Les remappings sont définis dans hardhat.config.ts
+            // Le contrat utilise account-abstraction-v7
+        }
+    );
+
+    console.log("   Compilation réussie, déploiement...");
+    const entryPoint = await EntryPointFactory.deploy();
+    await entryPoint.waitForDeployment();
+
+    const entryPointAddress = await entryPoint.getAddress();
+    console.log("   ✅ EntryPoint v0.7 déployé à:", entryPointAddress);
+    console.log("");
+
+    // Vérifier que c'est bien un EntryPoint v0.7 en testant une fonction
+    try {
+        const depositAddress = ethers.ZeroAddress;
+        // Test: appeler balanceOf (fonction standard des EntryPoints)
+        const balance = await entryPoint.balanceOf(depositAddress);
+        console.log("   ✅ Vérification: balanceOf fonctionne (balance:", balance.toString(), ")");
+    } catch (error: any) {
+        console.warn("   ⚠️  Vérification balanceOf échouée:", error.message);
+    }
+    console.log("");
+
+    // Mettre à jour la configuration du bundler
+    const bundlerConfigPath = path.join(
+        __dirname,
+        "../../../bundler-alto/scripts/config.local.json"
+    );
+    let bundlerConfig: any = {};
+
+    try {
+        const configContent = fs.readFileSync(bundlerConfigPath, "utf-8");
+        bundlerConfig = JSON.parse(configContent);
+    } catch (error: any) {
+        console.warn("⚠️  Impossible de lire la configuration du bundler:", error.message);
+        console.warn("   Le fichier sera créé.");
+    }
+
+    bundlerConfig.entrypoints = entryPointAddress;
+
+    try {
+        fs.writeFileSync(
+            bundlerConfigPath,
+            JSON.stringify(bundlerConfig, null, 4) + "\n",
+            "utf-8"
+        );
+        console.log("✅ Config bundler mise à jour:", bundlerConfigPath);
+        console.log(`   "entrypoints": "${entryPointAddress}"`);
+    } catch (error: any) {
+        console.error("❌ Erreur lors de l'écriture de config.local.json:", error.message);
+    }
+
+    // Mettre à jour .env.local
+    const envPath = path.join(__dirname, "../../../.env.local");
+    try {
+        let envContent = "";
+        if (fs.existsSync(envPath)) {
+            envContent = fs.readFileSync(envPath, "utf-8");
+        }
+
+        const line = `NEXT_PUBLIC_ENTRY_POINT=${entryPointAddress}`;
+        if (envContent.includes("NEXT_PUBLIC_ENTRY_POINT=")) {
+            envContent = envContent.replace(/^NEXT_PUBLIC_ENTRY_POINT=.*$/m, line);
+        } else {
+            envContent = envContent.trimEnd();
+            envContent = envContent.length ? `${envContent}\n${line}\n` : `${line}\n`;
+        }
+
+        fs.writeFileSync(envPath, envContent, "utf-8");
+        console.log("✅ .env.local mise à jour:", envPath);
+    } catch (error: any) {
+        console.error("❌ Erreur lors de la mise à jour de .env.local:", error.message);
+    }
+
+    console.log("");
+    console.log("=".repeat(80));
+    console.log("✅ DÉPLOIEMENT TERMINÉ");
+    console.log("=".repeat(80));
+    console.log("");
+    console.log("⚠️  IMPORTANT: Redémarrez le bundler pour qu'il utilise cette nouvelle adresse!");
+    console.log("");
+}
+
+main()
+    .then(() => process.exit(0))
+    .catch((error) => {
+        console.error(error);
+        process.exitCode = 1;
+    });
+
+
+
+

@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>SOX Local Precompute</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+        margin: 0;
+        padding: 24px;
+        background: #050816;
+        color: #e5e7eb;
+      }
+      h1 {
+        font-size: 20px;
+        margin-bottom: 16px;
+      }
+      button {
+        padding: 8px 16px;
+        border-radius: 6px;
+        border: none;
+        background: #22c55e;
+        color: #020617;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+      pre {
+        background: #020617;
+        padding: 12px;
+        border-radius: 6px;
+        overflow: auto;
+        font-size: 12px;
+      }
+      .status {
+        margin-top: 12px;
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>SOX - Précompute local (Rust natif)</h1>
+    <p>
+      Cette application lit directement un fichier sur le disque, appelle le
+      binaire Rust <code>precontract-cli</code> et affiche le résultat du
+      pré-calcul.
+    </p>
+    <button id="btn-precompute">Choisir un fichier et lancer le précompute</button>
+    <div class="status" id="status"></div>
+    <h2>Résultat brut</h2>
+    <pre id="output">(aucun calcul lancé pour l'instant)</pre>
+
+    <script>
+      const btn = document.getElementById("btn-precompute");
+      const statusEl = document.getElementById("status");
+      const outputEl = document.getElementById("output");
+
+      btn.addEventListener("click", async () => {
+        if (!window.electronAPI || !window.electronAPI.precompute) {
+          alert("electronAPI.precompute n'est pas disponible.");
+          return;
+        }
+
+        btn.disabled = true;
+        statusEl.textContent = "Précompute en cours...";
+        outputEl.textContent = "";
+
+        try {
+          const res = await window.electronAPI.precompute();
+
+          if (res.cancelled) {
+            statusEl.textContent = "Opération annulée.";
+            outputEl.textContent = "(annulé par l'utilisateur)";
+          } else if (res.error) {
+            statusEl.textContent = "Erreur lors du précompute.";
+            outputEl.textContent = res.error;
+          } else {
+            statusEl.textContent =
+              "Précompute terminé. Fichier : " + (res.inputPath || "(inconnu)");
+            outputEl.textContent = JSON.stringify(res, null, 2);
+          }
+        } catch (e) {
+          statusEl.textContent = "Erreur inattendue.";
+          outputEl.textContent = e && e.stack ? e.stack : String(e);
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    </script>
+  </body>
+  </html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
