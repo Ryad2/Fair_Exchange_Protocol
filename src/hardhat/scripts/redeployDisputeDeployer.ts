@@ -1,6 +1,6 @@
 import hre from "hardhat";
 import { ethers } from "hardhat";
-import { writeFileSync } from "fs";
+import { writeFileSync, readFileSync, existsSync } from "fs";
 import { join } from "path";
 
 /**
@@ -37,17 +37,17 @@ async function main() {
     const accumulatorVerifierAddr = await accumulatorVerifier.getAddress();
     console.log("  ✅ AccumulatorVerifier:", accumulatorVerifierAddr);
     
+    const SHA256EvaluatorFactory = await ethers.getContractFactory("SHA256Evaluator");
+    const sha256Evaluator = await SHA256EvaluatorFactory.deploy();
+    await sha256Evaluator.waitForDeployment();
+    const sha256EvaluatorAddr = await sha256Evaluator.getAddress();
+    console.log("  ✅ SHA256Evaluator:", sha256EvaluatorAddr);
+    
     const CommitmentOpenerFactory = await ethers.getContractFactory("CommitmentOpener");
     const commitmentOpener = await CommitmentOpenerFactory.deploy();
     await commitmentOpener.waitForDeployment();
     const commitmentOpenerAddr = await commitmentOpener.getAddress();
     console.log("  ✅ CommitmentOpener:", commitmentOpenerAddr);
-    
-    const DisputeSOXHelpersFactory = await ethers.getContractFactory("DisputeSOXHelpers");
-    const disputeHelpers = await DisputeSOXHelpersFactory.deploy();
-    await disputeHelpers.waitForDeployment();
-    const disputeHelpersAddr = await disputeHelpers.getAddress();
-    console.log("  ✅ DisputeSOXHelpers:", disputeHelpersAddr);
     
     // ÉTAPE 3: Déploiement de DisputeDeployer (CRITIQUE)
     console.log("\n🚀 ÉTAPE 3: Déploiement de DisputeDeployer avec le nouveau bytecode...");
@@ -55,7 +55,7 @@ async function main() {
         libraries: {
             AccumulatorVerifier: accumulatorVerifierAddr,
             CommitmentOpener: commitmentOpenerAddr,
-            DisputeSOXHelpers: disputeHelpersAddr,
+            SHA256Evaluator: sha256EvaluatorAddr,
         },
     });
     const disputeDeployer = await DisputeDeployerFactory.connect(sponsor).deploy();
@@ -97,16 +97,46 @@ async function main() {
     );
     console.log("  ✅ OptimisticSOXAccount.json généré avec le nouveau DisputeDeployer");
     
+    // ÉTAPE 5: Mise à jour de deployed-contracts.json
+    console.log("\n📝 ÉTAPE 5: Mise à jour de deployed-contracts.json...");
+    const deployedContractsPath = join(__dirname, "../../../deployed-contracts.json");
+    
+    let deployedContracts: any = {};
+    if (existsSync(deployedContractsPath)) {
+        deployedContracts = JSON.parse(readFileSync(deployedContractsPath, "utf-8"));
+    }
+    
+    const network = await hre.ethers.provider.getNetwork();
+    if (!deployedContracts.addresses) {
+        deployedContracts.addresses = {};
+    }
+    
+    // Mettre à jour uniquement DisputeDeployer (les autres libraries restent inchangées)
+    deployedContracts.addresses.DisputeDeployer = disputeDeployerAddr;
+    deployedContracts.network = hre.network.name;
+    deployedContracts.chainId = Number(network.chainId);
+    deployedContracts.deployer = await sponsor.getAddress();
+    deployedContracts.timestamp = new Date().toISOString();
+    
+    writeFileSync(
+        deployedContractsPath,
+        JSON.stringify(deployedContracts, null, 2)
+    );
+    console.log("  ✅ deployed-contracts.json mis à jour:", deployedContractsPath);
+    console.log("     DisputeDeployer:", disputeDeployerAddr);
+    
     console.log("\n" + "=".repeat(80));
     console.log("✅ REDÉPLOIEMENT TERMINÉ!");
     console.log("=".repeat(80));
     console.log("\n📋 Résumé:");
     console.log(`  - DisputeDeployer: ${disputeDeployerAddr}`);
     console.log(`  - Fichiers JSON mis à jour dans: ${contractsDir}`);
+    console.log(`  - deployed-contracts.json mis à jour: ${deployedContractsPath}`);
     console.log("\n⚠️  IMPORTANT:");
     console.log("  1. Les nouveaux contrats créés via ce DisputeDeployer utiliseront le NOUVEAU bytecode");
     console.log("  2. Les contrats déjà déployés ne peuvent PAS être mis à jour (immutables)");
     console.log("  3. Il faut créer un NOUVEAU OptimisticSOXAccount pour tester avec la correction");
+    console.log("  4. Redémarrer l'application pour utiliser le nouveau DisputeDeployer");
     console.log("");
 }
 

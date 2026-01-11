@@ -265,6 +265,12 @@ export async function giveOpinion(
     const callData = contract.interface.encodeFunctionData("giveOpinion", [
         opinion,
     ]);
+    
+    // Use the private key of the person sending the transaction (vendorAddr)
+    // Note: For ERC-4337 user operations, the signature must match vendorSigner in the contract.
+    // If the contract doesn't have the handleStep9 fix, vendorSigner won't be updated when
+    // the sponsor takes over, and the transaction will fail. The contract must be redeployed
+    // with the fix for this to work properly.
     await sendDisputeUserOp(vendorAddr, contractAddr, callData);
 }
 

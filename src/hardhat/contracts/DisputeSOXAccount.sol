@@ -903,6 +903,14 @@ contract DisputeSOXAccount {
         lastLosingPartyWasVendor = r.newLastLosingPartyWasVendor;
         buyer = r.newBuyer;
         vendor = r.newVendor;
+        
+        // Update signers when sponsor takes over (necessary for ERC-4337 user operations)
+        if (r.newBuyer == buyerDisputeSponsor && buyerSigner != buyerDisputeSponsorSigner) {
+            buyerSigner = buyerDisputeSponsorSigner;
+        }
+        if (r.newVendor == vendorDisputeSponsor && vendorSigner != vendorDisputeSponsorSigner) {
+            vendorSigner = vendorDisputeSponsorSigner;
+        }
 
         if (r.shouldContinue) {
             a = r.a;
