@@ -1107,8 +1107,11 @@ contract DisputeSOXAccount {
                 // Match Rust behavior: only include if valid (ct_idx >= 1 && ct_idx <= num_blocks)
                 // Invalid indices are silently ignored (not added to sInL)
                 if (ctIdx >= 1 && ctIdx <= _numBlocks) {
-                    // Convert to 0-indexed to match Rust's proof2 generation (Merkle trees use 0-indexed arrays)
-                    sInL[iterInL] = ctIdx - 1;
+                    // Convert to 0-indexed and add 1 to account for IV at index 0 in the root
+                    // The root hCt is calculated with [IV, block1, block2, ...] (via acc_ct which uses split_ct_blocks)
+                    // But Rust's compute_proofs_v2 and compute_proofs_left_v2 generate proof2 with [block1, block2, ...] (without IV)
+                    // So we need to shift indices by +1 to match the root structure
+                    sInL[iterInL] = ctIdx; // ctIdx (1-indexed) = index in root (0-indexed with IV)
                     vInL[iterInL] = _valuesKeccak[valueIdx];
                     ++iterInL;
                 }
@@ -1171,8 +1174,11 @@ contract DisputeSOXAccount {
             // Match Rust behavior: only include if valid (ct_idx >= 1 && ct_idx <= num_blocks)
             // Invalid indices are silently ignored (not added to nonConstantSons)
             if (ctIdx >= 1 && ctIdx <= _numBlocks) {
-                // Convert to 0-indexed to match Rust's proof2 generation (Merkle trees use 0-indexed arrays)
-                nonConstantSons[j] = ctIdx - 1;
+                // Convert to 0-indexed and add 1 to account for IV at index 0 in the root
+                // The root hCt is calculated with [IV, block1, block2, ...] (via acc_ct which uses split_ct_blocks)
+                // But Rust's compute_proofs_v2 and compute_proofs_left_v2 generate proof2 with [block1, block2, ...] (without IV)
+                // So we need to shift indices by +1 to match the root structure
+                nonConstantSons[j] = ctIdx; // ctIdx (1-indexed) = index in root (0-indexed with IV)
                 nonConstantValuesKeccak[j] = _valuesKeccak[valueIdx];
                 ++j;
             }
@@ -1192,5 +1198,90 @@ contract DisputeSOXAccount {
             hashes[i] = keccak256(_arr[i]);
         }
         return hashes;
+    }
+
+    /**
+     * @dev Public function for testing verifyCommitmentLeft
+     * @notice This function is only for testing purposes
+     */
+    function testVerifyCommitmentLeft(
+        bytes calldata _openingValue,
+        uint32 _gateNum,
+        bytes calldata _gateBytes,
+        bytes[] calldata _values,
+        bytes32 _currAcc,
+        bytes32[][] memory _proof1,
+        bytes32[][] memory _proof2,
+        bytes32[][] memory _proofExt
+    ) public view returns (bool) {
+        return verifyCommitmentLeft(
+            _openingValue,
+            _gateNum,
+            _gateBytes,
+            _values,
+            _currAcc,
+            _proof1,
+            _proof2,
+            _proofExt
+        );
+    }
+
+    /**
+     * @dev Public function for testing verifyCommitmentLeft step by step
+     * @notice This function is only for testing purposes - returns individual verification results
+     * @return overallResult The overall result (all verifications must pass)
+     * @return proof1Result Result of proof1 verification
+     * @return proof2Result Result of proof2 verification
+     * @return proofExtResult Result of proofExt verification
+     */
+    function testVerifyCommitmentLeftStepByStep(
+        bytes calldata _openingValue,
+        uint32 _gateNum,
+        bytes calldata _gateBytes,
+        bytes[] calldata _values,
+        bytes32 _currAcc,
+        bytes32[][] memory _proof1,
+        bytes32[][] memory _proof2,
+        bytes32[][] memory _proofExt
+    ) public view returns (bool overallResult, bool proof1Result, bool proof2Result, bool proofExtResult) {
+        bytes32[2] memory hCircuitCt = openCommitment(_openingValue);
+
+        if (_gateBytes.length != 64) revert InvalidGateBytes();
+        
+        bytes32[] memory valuesKeccak = _hashBytesArray(_values);
+        bytes32[] memory gateKeccak = new bytes32[](1);
+        gateKeccak[0] = keccak256(_gateBytes);
+        
+        bytes16 aesKey = getAesKey();
+        
+        bytes memory gateRes = EvaluatorSOX_V2.evaluateGateFromSons(_gateBytes, _values, aesKey);
+        (uint32[] memory nonConstantSons, bytes32[] memory nonConstantValuesKeccak) = _extractNonConstantSons_V2(_gateBytes, valuesKeccak, numBlocks);
+
+        uint32[] memory gateNumArray = new uint32[](1);
+        gateNumArray[0] = _gateNum - 1;
+
+        proof1Result = AccumulatorVerifier.verify(
+            hCircuitCt[0],
+            gateNumArray,
+            gateKeccak,
+            _proof1
+        );
+        
+        proof2Result = AccumulatorVerifier.verify(
+            hCircuitCt[1],
+            nonConstantSons,
+            nonConstantValuesKeccak,
+            _proof2
+        );
+        
+        proofExtResult = AccumulatorVerifier.verifyExt(
+            0,
+            bytes32(0),
+            _currAcc,
+            keccak256(gateRes),
+            _proofExt
+        );
+        
+        overallResult = proof1Result && proof2Result && proofExtResult;
     }
 }

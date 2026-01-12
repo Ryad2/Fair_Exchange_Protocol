@@ -39,6 +39,7 @@ const DEFAULT_GAS_V8: UserOpGasV8 = {
 
 const DEFAULT_RECEIPT_TIMEOUT_MS = 60_000;
 const DEFAULT_RECEIPT_POLL_MS = 2_000;
+const EIP7702_FACTORY_ADDRESS = "0x7702";
 
 type PaymasterInfo = {
     paymaster: string;
@@ -251,9 +252,10 @@ export async function sendUserOperation(params: {
         factory = parsed.factory;
         factoryData = parsed.factoryData;
     }
+    // Pour EIP-7702 (Alto), le bundler attend factory = "0x7702".
     if (!factory && params.eip7702Auth) {
-        // EIP-7702 utilise le marker spécial "0x7702"
-        factory = "0x7702";
+        factory = EIP7702_FACTORY_ADDRESS;
+        factoryData = "0x";
     }
     
     // Normaliser factoryData seulement si factory est défini
@@ -290,7 +292,7 @@ export async function sendUserOperation(params: {
         // Sinon, complètement omis (pas undefined) pour les comptes existants
     };
     
-    // Ajouter factory/factoryData seulement si définis
+    // Ajouter factory/factoryData seulement si définis.
     if (factory) {
         userOpForHash.factory = factory as `0x${string}`;
         if (normalizedFactoryData) {
@@ -372,7 +374,7 @@ export async function sendUserOperation(params: {
             userOpForBundler.factory = factory;
             userOpForBundler.factoryData = normalizedFactoryData || "0x";
         }
-        // Note: Si factory n'est pas défini, ces champs sont omis (pas undefined/null)
+        // Note: Si factory n'est pas défini, ces champs sont omis
 
         // Ajouter paymaster fields seulement si paymaster est défini
         if (paymasterInfo) {
@@ -456,7 +458,6 @@ export async function sendUserOperationV8(params: {
     signerPrivateKey: string;
     entryPoint: string;
     delegate: string;
-    value?: bigint; // ETH amount to send from account (msg.value)
     gas?: Partial<UserOpGasV8>;
     factoryData?: string;
     paymaster?: {
@@ -500,7 +501,7 @@ export async function sendUserOperationV8(params: {
         privateKey: params.signerPrivateKey as `0x${string}`,
     });
 
-    const userOpForHash = {
+    const userOpForHash: any = {
         sender: params.sender as `0x${string}`,
         nonce: BigInt(nonce),
         callData: params.callData as `0x${string}`,
@@ -509,7 +510,7 @@ export async function sendUserOperationV8(params: {
         preVerificationGas: gas.preVerificationGas,
         maxFeePerGas: gas.maxFeePerGas,
         maxPriorityFeePerGas: gas.maxPriorityFeePerGas,
-        factory: "0x7702" as `0x${string}`,
+        factory: EIP7702_FACTORY_ADDRESS as `0x${string}`,
         factoryData: factoryData as `0x${string}`,
         authorization,
         paymaster: params.paymaster?.address as `0x${string}` | undefined,
@@ -517,7 +518,6 @@ export async function sendUserOperationV8(params: {
         paymasterPostOpGasLimit: params.paymaster?.postOpGasLimit,
         paymasterData: params.paymaster?.data as `0x${string}` | undefined,
         signature: "0x" as `0x${string}`,
-        value: params.value || 0n, // ETH amount to send from account
     };
 
     const computedUserOpHash = getUserOperationHash({
@@ -540,10 +540,10 @@ export async function sendUserOperationV8(params: {
         yParity: toBeHex(BigInt(authorization.yParity ?? 0)),
     };
 
-    const userOpForBundler = {
+    const userOpForBundler: Record<string, unknown> = {
         sender: signerWallet.address.toLowerCase(),
         nonce: toBeHex(nonce),
-        factory: "0x7702",
+        factory: EIP7702_FACTORY_ADDRESS,
         factoryData,
         callData: params.callData,
         callGasLimit: toBeHex(gas.callGasLimit),
@@ -551,18 +551,19 @@ export async function sendUserOperationV8(params: {
         preVerificationGas: toBeHex(gas.preVerificationGas),
         maxFeePerGas: toBeHex(gas.maxFeePerGas),
         maxPriorityFeePerGas: toBeHex(gas.maxPriorityFeePerGas),
-        value: toBeHex(params.value || 0n), // ETH amount to send from account
-        paymaster: params.paymaster?.address,
-        paymasterVerificationGasLimit: params.paymaster
-            ? toBeHex(params.paymaster.verificationGasLimit)
-            : undefined,
-        paymasterPostOpGasLimit: params.paymaster
-            ? toBeHex(params.paymaster.postOpGasLimit)
-            : undefined,
-        paymasterData: params.paymaster?.data,
         signature,
         eip7702Auth,
     };
+    
+    // Ajouter paymaster fields seulement si définis
+    if (params.paymaster) {
+        userOpForBundler.paymaster = params.paymaster.address;
+        userOpForBundler.paymasterVerificationGasLimit = toBeHex(params.paymaster.verificationGasLimit);
+        userOpForBundler.paymasterPostOpGasLimit = toBeHex(params.paymaster.postOpGasLimit);
+        if (params.paymaster.data && params.paymaster.data !== "0x") {
+            userOpForBundler.paymasterData = params.paymaster.data;
+        }
+    }
 
     const response = await fetch(BUNDLER_URL, {
         method: "POST",

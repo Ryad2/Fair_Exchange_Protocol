@@ -170,8 +170,11 @@ library DisputeSOXHelpers {
                 continue;
             }
             uint32 ctIdx = uint32(uint64(-sons[i]));
-            // Convert to 0-indexed to match Rust's proof2 generation (Merkle trees use 0-indexed arrays)
-            nonConstantSons[j] = ctIdx - 1;
+            // Convert to 0-indexed and add 1 to account for IV at index 0 in the root
+            // The root hCt is calculated with [IV, block1, block2, ...] (via acc_ct which uses split_ct_blocks)
+            // But Rust's compute_proofs_v2 and compute_proofs_left_v2 generate proof2 with [block1, block2, ...] (without IV)
+            // So we need to shift indices by +1 to match the root structure
+            nonConstantSons[j] = ctIdx; // ctIdx (1-indexed) = index in root (0-indexed with IV)
             nonConstantValuesKeccak[j] = _valuesKeccak[valueIdx];
             ++j;
             ++valueIdx;

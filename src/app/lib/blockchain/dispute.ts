@@ -448,16 +448,16 @@ export async function submitCommitmentLeft(
     // But don't block if it fails - sometimes staticCall fails but real call works
     try {
         console.log("🧪 Simulation de submitCommitmentLeft avec staticCall...");
-        await preflightDisputeCall(contract, vendorAddr, "submitCommitmentLeft", [
-            openingValueBytes,
-            gateNum,
-            gateBytesUint8,
+    await preflightDisputeCall(contract, vendorAddr, "submitCommitmentLeft", [
+        openingValueBytes,
+        gateNum,
+        gateBytesUint8,
             valuesArray,
             currAccArray,
-            proof1,
-            proof2,
-            proofExt,
-        ]);
+        proof1,
+        proof2,
+        proofExt,
+    ]);
         console.log("✅ Simulation réussie - les preuves devraient passer");
     } catch (preflightError: any) {
         console.error("❌ Simulation échouée (preflight):", preflightError);

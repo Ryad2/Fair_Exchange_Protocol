@@ -135,70 +135,105 @@ export default function DisputeListView() {
         if (!selectedDispute) {
             alert("something wrong happened!");
             showModalProof(false);
+            return;
         }
 
-        const isVendor = !!selectedDispute!.pk_buyer_sponsor;
+        const isVendor = !!selectedDispute.pk_buyer_sponsor;
         let endpoint = "/api/arguments/buyer";
         if (isVendor) {
             endpoint = "/api/arguments/vendor";
         }
 
-        const { argument: argument_hex, description } = await (
-            await fetch(`${endpoint}/${selectedDispute!.contract_id}`)
-        ).json();
+        try {
+            const response = await fetch(`${endpoint}/${selectedDispute.contract_id}`);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const contentType = response.headers.get("content-type");
+            if (!contentType || !contentType.includes("application/json")) {
+                throw new Error("Response is not JSON");
+            }
+            const text = await response.text();
+            if (!text || text.trim() === "") {
+                throw new Error("Empty response from server");
+            }
+            const data = JSON.parse(text);
+            const { argument: argument_hex, description } = data;
 
-        const { key, commitment } = (await getBasicInfo(
-            selectedDispute!.optimistic_smart_contract
-        ))!;
+            const { key, commitment } = (await getBasicInfo(
+                selectedDispute.optimistic_smart_contract
+            ))!;
 
-        console.log(argument_hex);
-        const argument = hex_to_bytes(argument_hex);
-        console.log(argument);
-        const result = check_argument(argument, commitment, description, key);
+            console.log(argument_hex);
+            const argument = hex_to_bytes(argument_hex);
+            console.log(argument);
+            const result = check_argument(argument, commitment, description, key);
 
-        // yandere dev core
-        if (result.error) {
-            alert(`An error occurred: ${result.error}`);
-        } else if (!result.is_valid) {
-            alert(
-                `!!! Argument in NOT valid !!!\nThe ${
-                    isVendor ? "vendor" : "buyer"
-                } may have lied`
-            );
-        } else if (result.supports_buyer) {
-            alert(
-                isVendor
-                    ? "!!!Vendor posted an argument that DOES NOT SUPPORT them!!!"
-                    : "Buyer posted an argument that supports them"
-            );
-        } else {
-            alert(
-                isVendor
-                    ? "Vendor posted an argument that supports them"
-                    : "!!!Buyer posted an argument that DOES NOT SUPPORT them!!!"
-            );
+            // yandere dev core
+            if (result.error) {
+                alert(`An error occurred: ${result.error}`);
+            } else if (!result.is_valid) {
+                alert(
+                    `!!! Argument in NOT valid !!!\nThe ${
+                        isVendor ? "vendor" : "buyer"
+                    } may have lied`
+                );
+            } else if (result.supports_buyer) {
+                alert(
+                    isVendor
+                        ? "!!!Vendor posted an argument that DOES NOT SUPPORT them!!!"
+                        : "Buyer posted an argument that supports them"
+                );
+            } else {
+                alert(
+                    isVendor
+                        ? "Vendor posted an argument that supports them"
+                        : "!!!Buyer posted an argument that DOES NOT SUPPORT them!!!"
+                );
+            }
+        } catch (error: any) {
+            console.error("Error checking argument:", error);
+            alert(`Erreur lors de la vérification de l'argument: ${error?.message || "Unknown error"}`);
+        } finally {
+            showModalProof(false);
         }
-        showModalProof(false);
     };
 
     const handleClickDownloadArgument = async (dispute: Dispute) => {
-        await init();
+        try {
+            await init();
 
-        const isVendor = !!dispute.pk_buyer_sponsor;
-        let endpoint = "/api/arguments/buyer";
-        if (isVendor) {
-            endpoint = "/api/arguments/vendor";
+            const isVendor = !!dispute.pk_buyer_sponsor;
+            let endpoint = "/api/arguments/buyer";
+            if (isVendor) {
+                endpoint = "/api/arguments/vendor";
+            }
+
+            const response = await fetch(`${endpoint}/${dispute.contract_id}`);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const contentType = response.headers.get("content-type");
+            if (!contentType || !contentType.includes("application/json")) {
+                throw new Error("Response is not JSON");
+            }
+            const text = await response.text();
+            if (!text || text.trim() === "") {
+                throw new Error("Empty response from server");
+            }
+            const data = JSON.parse(text);
+            const { argument: argument_hex } = data;
+            
+            downloadFile(
+                hex_to_bytes(argument_hex),
+                `${dispute.contract_id}_argument_${
+                    isVendor ? "vendor" : "buyer"
+                }.bin`
+            );
+        } catch (error: any) {
+            console.error("Error downloading argument:", error);
+            alert(`Erreur lors du téléchargement de l'argument: ${error?.message || "Unknown error"}`);
         }
-
-        const { argument: argument_hex } = await (
-            await fetch(`${endpoint}/${dispute.contract_id}`)
-        ).json();
-        downloadFile(
-            hex_to_bytes(argument_hex),
-            `${dispute.contract_id}_argument_${
-                isVendor ? "vendor" : "buyer"
-            }.bin`
-        );
     };
 
     return (

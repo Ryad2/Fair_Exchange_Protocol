@@ -218,9 +218,14 @@ library AccumulatorVerifier {
         bytes32[] memory addedValKeccakArr = new bytes32[](1);
         addedValKeccakArr[0] = addedValKeccak;
 
-        // For Step 8b (i=0, prevRoot=0), there is no previous accumulator,
+        // For Step 8b (i=0 or i=1, prevRoot=0), there is no previous accumulator,
         // so we only verify the current root, not the previous one
-        if (i == 0 && prevRoot == bytes32(0)) {
+        // Support both old code (i=1) and new code (i=0) for compatibility
+        if ((i == 0 || i == 1) && prevRoot == bytes32(0)) {
+            // For i=1 (old code), convert to 0-indexed for verify
+            if (i == 1) {
+                iArr[0] = 0;
+            }
             return verify(currRoot, iArr, addedValKeccakArr, proof);
         }
 

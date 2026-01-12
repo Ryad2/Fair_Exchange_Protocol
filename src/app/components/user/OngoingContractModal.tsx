@@ -626,6 +626,33 @@ export default function OngoingContractModal({
         }
     };
 
+    const clickDownloadCiphertext = async () => {
+        try {
+            const response = await fetch(`/api/files/${id}`, {
+                method: "GET",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+            });
+            if (!response.ok) {
+                const errorPayload = await response.json().catch(() => ({}));
+                throw new Error(
+                    errorPayload?.error ||
+                        `Impossible de télécharger le fichier (HTTP ${response.status})`
+                );
+            }
+            const fileData = await response.json();
+            if (!fileData?.file) {
+                throw new Error("Fichier chiffré introuvable (réponse vide).");
+            }
+            const ctBytes = hex_to_bytes(fileData.file);
+            downloadFile(ctBytes, `contract_${id}_ciphertext.enc`);
+        } catch (error: any) {
+            const errorMessage = error?.message || error?.toString() || "Erreur inconnue";
+            alert(`Erreur lors du téléchargement du fichier chiffré: ${errorMessage}`);
+        }
+    };
+
     const clickCompleteTransaction = async () => {
         await init();
         try {
