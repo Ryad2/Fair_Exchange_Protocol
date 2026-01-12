@@ -140,3 +140,4 @@ Les fichiers qui NE DOIVENT PAS être commités :
 - ❌ `test_1gb.*`
 - ❌ Fichiers générés
 
+

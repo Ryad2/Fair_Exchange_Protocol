@@ -433,9 +433,56 @@ describe("Proof Verification Tests (V2)", function () {
                 level.map((v: Uint8Array) => ethers.hexlify(new Uint8Array(v)))
             );
             
+            // TEST: Verify that testVerifyCommitmentLeft returns true with WASM-calculated proofs
+            console.log("   Testing testVerifyCommitmentLeft with WASM-calculated proofs...");
+            const verifyResult = await freshDisputeAccount.testVerifyCommitmentLeft(
+                commitment.o,
+                gateNum,
+                gateBytesArray,
+                valuesArray,
+                currAccArray,
+                proof1Array,
+                proof2Array,
+                proofExtArray
+            );
+            
+            // If it fails, test step by step to see which verification fails
+            if (!verifyResult) {
+                console.log("   ⚠️  testVerifyCommitmentLeft returned false, testing step by step...");
+                const stepResults = await freshDisputeAccount.testVerifyCommitmentLeftStepByStep(
+                    commitment.o,
+                    gateNum,
+                    gateBytesArray,
+                    valuesArray,
+                    currAccArray,
+                    proof1Array,
+                    proof2Array,
+                    proofExtArray
+                );
+                console.log(`   📊 Résultats détaillés:`);
+                console.log(`      - Overall: ${stepResults[0]}`);
+                console.log(`      - proof1: ${stepResults[1]}`);
+                console.log(`      - proof2: ${stepResults[2]}`);
+                console.log(`      - proofExt: ${stepResults[3]}`);
+                
+                if (!stepResults[1]) {
+                    console.log(`   ❌ proof1 verification échoue!`);
+                }
+                if (!stepResults[2]) {
+                    console.log(`   ❌ proof2 verification échoue!`);
+                }
+                if (!stepResults[3]) {
+                    console.log(`   ❌ proofExt verification échoue!`);
+                }
+            }
+            
+            expect(verifyResult).to.equal(true, "testVerifyCommitmentLeft should return true with WASM-calculated proofs");
+            console.log(`   ✅✅✅ testVerifyCommitmentLeft returned: ${verifyResult}`);
+            console.log(`   ✅✅✅ CONFIRMATION: Les preuves calculées par WASM sont acceptées par verifyCommitmentLeft!`);
+            
             // Submit commitment with proofs - should succeed
             console.log("   Submitting commitment with proofs...");
-            const tx = await disputeAccount.connect(vendor).submitCommitmentLeft(
+            const tx = await freshDisputeAccount.connect(vendor).submitCommitmentLeft(
                 commitment.o,
                 gateNum,
                 gateBytesArray,
@@ -450,7 +497,7 @@ describe("Proof Verification Tests (V2)", function () {
             console.log(`   ✅ Transaction successful! Gas used: ${receipt!.gasUsed.toString()}`);
             
             // Verify state transition
-            const newState = Number(await disputeAccount.currState());
+            const newState = Number(await freshDisputeAccount.currState());
             expect(newState).to.equal(0, "Should return to ChallengeBuyer state after successful submission");
         });
     });

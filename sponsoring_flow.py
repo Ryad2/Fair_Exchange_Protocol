@@ -246,3 +246,4 @@ print(f"✅ Diagramme créé: {output_path}")
 
 
 
+

@@ -57,3 +57,4 @@ echo "   - Une sauvegarde a été créée : $BACKUP_BRANCH"
 echo "   - Vous devez faire un force push : git push --force"
 echo "   - Si quelque chose ne va pas, restaurez avec : git branch -D $CURRENT_BRANCH && git checkout $BACKUP_BRANCH"
 
+

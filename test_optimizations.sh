@@ -102,3 +102,4 @@ echo "✅ Optimisations: Les résultats cryptographiques sont préservés"
 
 
 
+

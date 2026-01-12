@@ -140,10 +140,10 @@ async function main() {
     console.log(`📋 VendorSigner: ${vendorSignerAddr}\n`);
 
     // Find the vendor signer account
-    const allSigners = [sponsor, buyer, vendor, sbSponsor, svSponsor];
+        const allSigners = [sponsor, buyer, vendor, sbSponsor, svSponsor];
     const vendorSignerWallet = allSigners.find(s => s.address.toLowerCase() === vendorSignerAddr.toLowerCase());
     
-    if (!vendorSignerWallet) {
+        if (!vendorSignerWallet) {
         console.error(`❌ Aucun signer ne correspond au vendorSigner du contrat: ${vendorSignerAddr}`);
         console.error(`   Signers disponibles:`);
         for (let i = 0; i < allSigners.length; i++) {

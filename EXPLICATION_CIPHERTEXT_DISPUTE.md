@@ -70,3 +70,4 @@ Dans `OngoingContractModal.tsx`, ligne 1092-1136, la fonction `getLargeData()` :
 Si le vendor sélectionne un fichier différent, les calculs seront incorrects et la dispute échouera.
 
 
+

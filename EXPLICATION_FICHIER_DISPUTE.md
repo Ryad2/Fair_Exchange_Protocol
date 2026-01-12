@@ -34,3 +34,4 @@ Si vous voulez quand même permettre la sélection manuelle (avec un avertisseme
 Quelle option préférez-vous ?
 
 
+

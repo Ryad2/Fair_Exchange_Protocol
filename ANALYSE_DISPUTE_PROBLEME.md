@@ -87,3 +87,4 @@ pub fn compute_proof_right_v2(
 3. Vérifier que le buyer envoie bien la bonne réponse pour `chall = numGates + 1`
 
 
+

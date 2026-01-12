@@ -959,7 +959,17 @@ pub fn compute_proofs_v2(
         .collect();
     let proof1 = prove(&encoded_gates, &[gate_idx as u32]);
     
-    let proof2 = prove(&ct_blocks, &s_in_l);
+    // ⚠️ FIX: Le root hCt est calculé AVEC IV (via acc_ct qui utilise split_ct_blocks)
+    // Donc proof2 doit être généré AVEC IV pour correspondre au root
+    // Les indices dans s_in_l sont pour ct_blocks (sans IV), donc on doit les décaler de +1
+    let mut ct_blocks_with_iv = Vec::new();
+    ct_blocks_with_iv.push(ct[..16].to_vec()); // IV comme premier bloc
+    ct_blocks_with_iv.extend_from_slice(&ct_blocks); // Ajouter les blocs de données
+    
+    // Décaler les indices de +1 pour correspondre aux nouveaux indices avec IV
+    let s_in_l_with_iv: Vec<u32> = s_in_l.iter().map(|&idx| idx + 1).collect();
+    let proof2 = prove(&ct_blocks_with_iv, &s_in_l_with_iv);
+    
     let proof3 = prove(
         &evaluated.values[(num_blocks as usize)..(num_blocks as usize + challenge as usize - 1) as usize],
         &not_in_l_minus_m,
@@ -1017,7 +1027,11 @@ pub fn compute_proofs_left_v2(
     let circuit = CompiledCircuitV2::from_bytes(circuit_bytes);
     let evaluated = EvaluatedCircuitV2::from_bytes(evaluated_circuit_bytes);
     
-    // Split ciphertext into blocks
+    // Split ciphertext into blocks (SANS IV, comme compute_proofs_v2)
+    // ⚠️ FIX: Aligner avec compute_proofs_v2 qui utilise ct_blocks SANS IV pour proof2
+    // Le root hCt est calculé AVEC IV (via acc_ct qui utilise split_ct_blocks),
+    // mais les indices dans nonConstantSons (Solidity) sont pour un tableau SANS IV.
+    // Donc proof2 doit être généré SANS IV pour correspondre aux indices Solidity.
     let mut ct_blocks = Vec::new();
     let mut start = 16; // Skip IV
     while start < ct.len() {
@@ -1034,10 +1048,7 @@ pub fn compute_proofs_left_v2(
     let gate_idx = (challenge as usize) - 1;
     let gate = &circuit.gates[gate_idx];
     
-    // Get non-constant sons (all sons for V2, as there are no constants in the same way)
-    let non_constant_sons: Vec<i64> = gate.sons.clone();
-    
-    // Get evaluated sons
+    // Get evaluated sons (utilise ct_blocks SANS IV, comme compute_proofs_v2)
     // For V2, evaluated.values contains [inputs (num_blocks), gate_outputs (num_gates)]
     // So gate outputs start at index num_blocks
     let gate_outputs = &evaluated.values[(num_blocks as usize)..];
@@ -1062,17 +1073,22 @@ pub fn compute_proofs_left_v2(
     let proof1 = prove(&encoded_gates, &[gate_idx as u32]);
     
     // For proof2, we need to convert negative sons to block indices
-    let block_indices: Vec<u32> = non_constant_sons
-        .iter()
-        .filter_map(|&s| {
-            if s < 0 {
-                Some((-s - 1) as u32)
-            } else {
-                None
-            }
-        })
-        .collect();
-    let proof2 = prove(&ct_blocks, &block_indices);
+    // ⚠️ FIX: Utiliser split_sons_indices_v2 comme dans compute_proofs_v2 pour vérifier la validité des indices
+    // Le problème était que compute_proofs_left_v2 utilisait (-s - 1) directement sans vérifier
+    // si ct_idx >= 1 && ct_idx <= num_blocks, ce qui peut inclure des indices invalides
+    // compute_proofs_v2 utilise split_sons_indices_v2 qui filtre les indices invalides
+    let (s_in_l, _) = split_sons_indices_v2(&gate.sons, num_blocks);
+    
+    // ⚠️ FIX CRITIQUE: Le root hCt est calculé AVEC IV (via acc_ct qui utilise split_ct_blocks)
+    // Donc proof2 doit être généré AVEC IV pour correspondre au root
+    // Les indices dans s_in_l sont pour ct_blocks (sans IV), donc on doit les décaler de +1
+    let mut ct_blocks_with_iv = Vec::new();
+    ct_blocks_with_iv.push(ct[..16].to_vec()); // IV comme premier bloc
+    ct_blocks_with_iv.extend_from_slice(&ct_blocks); // Ajouter les blocs de données
+    
+    // Décaler les indices de +1 pour correspondre aux nouveaux indices avec IV
+    let s_in_l_with_iv: Vec<u32> = s_in_l.iter().map(|&idx| idx + 1).collect();
+    let proof2 = prove(&ct_blocks_with_iv, &s_in_l_with_iv);
     
     let proof_ext = prove_ext(&[evaluated.values[num_blocks as usize].clone()]);
     

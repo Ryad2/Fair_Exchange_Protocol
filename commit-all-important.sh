@@ -53,3 +53,4 @@ echo ""
 echo "📊 Vérification :"
 git log -1 --stat --oneline | head -20
 
+

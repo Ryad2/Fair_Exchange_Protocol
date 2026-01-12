@@ -83,3 +83,4 @@ Le ciphertext utilisé dans la dispute **DOIT être identique** à celui utilis�
 **Conclusion :** Utiliser toujours la récupération automatique depuis l'API plutôt que la sélection manuelle.
 
 
+

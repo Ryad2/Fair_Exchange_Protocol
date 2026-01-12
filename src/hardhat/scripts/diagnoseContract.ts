@@ -1,517 +1,211 @@
-import hre from "hardhat";
 import { ethers } from "hardhat";
-import OptimisticSOXAccountArtifact from "../../app/lib/blockchain/contracts/OptimisticSOXAccount.json";
-import OptimisticSOXArtifact from "../../app/lib/blockchain/contracts/OptimisticSOX.json";
+import Database from "better-sqlite3";
+import { readFileSync } from "fs";
+import { join } from "path";
+import {
+    initSync,
+    compute_precontract_values_v2,
+    compute_proofs_v2,
+    compute_proofs_left_v2,
+    evaluate_circuit_v2_wasm,
+    hpre_v2,
+    bytes_to_hex,
+} from "../../app/lib/crypto_lib/crypto_lib";
 
-/**
- * Script de diagnostic pour analyser un contrat OptimisticSOX/OptimisticSOXAccount
- * Usage: CONTRACT_ADDR=0x... npx hardhat run scripts/diagnoseContract.ts --network localhost
- */
+const DISPUTE_ADDRESS = process.env.DISPUTE_ADDRESS || "0x6a90D73D17bf8d3DD5f5924fc0d5D9e8af23042d";
+const DB_PATH = join(__dirname, "../../app/db/sox.sqlite");
+
 async function main() {
-    const contractAddr = process.env.CONTRACT_ADDR;
-    if (!contractAddr) {
-        console.error("❌ Veuillez fournir CONTRACT_ADDR");
-        console.error("Usage: CONTRACT_ADDR=0x... npx hardhat run scripts/diagnoseContract.ts --network localhost");
-        process.exit(1);
-    }
-
-    const provider = ethers.provider;
-    const [deployer] = await hre.ethers.getSigners();
-
-    console.log("=".repeat(80));
     console.log("🔍 DIAGNOSTIC DU CONTRAT");
     console.log("=".repeat(80));
-    console.log("");
-    console.log("Adresse du contrat:", contractAddr);
-    console.log("");
+    console.log(`Contrat: ${DISPUTE_ADDRESS}\n`);
 
-    // Détecter le type de contrat
-    let contract: ethers.Contract;
-    let isOptimisticSOXAccount = false;
-    let entryPointAddr: string | null = null;
+    // Initialize WASM
+    const wasmPath = join(__dirname, "../../app/lib/crypto_lib/crypto_lib_bg.wasm");
+    const wasmBytes = readFileSync(wasmPath);
+    initSync({ module: wasmBytes });
+    console.log("✅ WASM initialisé\n");
+
+    // Load database
+    const db = new Database(DB_PATH);
+    const contractRow = db.prepare(`
+        SELECT c.id, c.opening_value, c.item_description, c.commitment,
+               c.optimistic_smart_contract, c.num_blocks, c.num_gates
+        FROM contracts c
+        LEFT JOIN disputes d ON c.id = d.contract_id
+        WHERE d.dispute_smart_contract = ? OR d.dispute_smart_contract LIKE ?
+    `).get(DISPUTE_ADDRESS, `%${DISPUTE_ADDRESS.slice(2).toLowerCase()}%`) as any;
+
+    const [deployer] = await ethers.getSigners();
+
+    // Try to get contract from blockchain
+    let dispute: any = null;
+    let state: number | null = null;
+    let a: number | null = null;
+    let b: number | null = null;
+    let chall: number | null = null;
+    let numBlocks: number;
+    let numGates: number;
+    let commitment: string;
+    let optimisticAddr: string | null = null;
+    let key: string | null = null;
 
     try {
-        contract = new ethers.Contract(contractAddr, OptimisticSOXAccountArtifact.abi, provider);
-        try {
-            entryPointAddr = await contract.entryPoint();
-            isOptimisticSOXAccount = entryPointAddr !== ethers.ZeroAddress;
-        } catch {
-            // Si entryPoint() n'existe pas, c'est OptimisticSOX
-            contract = new ethers.Contract(contractAddr, OptimisticSOXArtifact.abi, provider);
-        }
-    } catch {
-        contract = new ethers.Contract(contractAddr, OptimisticSOXArtifact.abi, provider);
-    }
-
-    console.log("📊 Type de contrat:", isOptimisticSOXAccount ? "OptimisticSOXAccount ✅" : "OptimisticSOX");
-    if (isOptimisticSOXAccount && entryPointAddr) {
-        console.log("  EntryPoint:", entryPointAddr);
-    }
-    console.log("");
-
-    // Informations de base
-    const state = await contract.currState();
-    const stateNames = ["WaitPayment", "WaitKey", "WaitSB", "WaitSV", "InDispute", "End"];
-    const stateName = stateNames[Number(state)] || `Unknown (${state})`;
-    
-    console.log("📊 État du contrat:");
-    console.log("  État:", stateName, `(${state})`);
-    console.log("");
-
-    const agreedPrice = await contract.agreedPrice();
-    const disputeTip = await contract.disputeTip();
-    const completionTip = await contract.completionTip();
-    const DISPUTE_FEES = 10n;
-
-    console.log("💰 Montants:");
-    console.log("  AgreedPrice:", agreedPrice.toString(), "wei");
-    console.log("  DisputeTip:", disputeTip.toString(), "wei");
-    console.log("  CompletionTip:", completionTip.toString(), "wei");
-    console.log("  DISPUTE_FEES:", DISPUTE_FEES.toString(), "wei");
-    console.log("");
-
-    // Vérifier les sponsors
-    const buyerDisputeSponsor = await contract.buyerDisputeSponsor();
-    const vendorDisputeSponsor = await contract.vendorDisputeSponsor();
-    
-    console.log("👥 Sponsors:");
-    console.log("  Buyer dispute sponsor:", buyerDisputeSponsor);
-    console.log("  Vendor dispute sponsor:", vendorDisputeSponsor);
-    console.log("");
-
-    // Vérifier les balances
-    const contractBalance = await provider.getBalance(contractAddr);
-    console.log("💵 Balances:");
-    console.log("  Balance du contrat:", contractBalance.toString(), "wei");
-    console.log("");
-
-    // Calculer les montants requis
-    const requiredAmount = DISPUTE_FEES + disputeTip + agreedPrice;
-    const oldRequiredAmount = DISPUTE_FEES + disputeTip;
-    const totalBalanceAfter = contractBalance + requiredAmount;
-    const totalBalanceAfterOld = contractBalance + oldRequiredAmount;
-
-    console.log("💳 Montants requis:");
-    console.log("  Nouveau montant (recommandé):", requiredAmount.toString(), "wei");
-    console.log("    (DISPUTE_FEES:", DISPUTE_FEES, "+ disputeTip:", disputeTip.toString(), "+ agreedPrice:", agreedPrice.toString(), ")");
-    console.log("  Ancien montant (compatibilité):", oldRequiredAmount.toString(), "wei");
-    console.log("    (DISPUTE_FEES:", DISPUTE_FEES, "+ disputeTip:", disputeTip.toString(), ")");
-    console.log("");
-
-    console.log("📊 Balance après envoi:");
-    console.log("  Avec nouveau montant:", totalBalanceAfter.toString(), "wei");
-    console.log("  Avec ancien montant:", totalBalanceAfterOld.toString(), "wei");
-    console.log("  AgreedPrice requis:", agreedPrice.toString(), "wei");
-    console.log("  ✅ Balance totale >= AgreedPrice (nouveau):", totalBalanceAfter >= agreedPrice ? "OUI" : "NON");
-    console.log("  ✅ Balance totale >= AgreedPrice (ancien):", totalBalanceAfterOld >= agreedPrice ? "OUI" : "NON");
-    console.log("");
-
-    // Vérifier le contrat de dispute s'il existe
-    try {
-        const disputeContract = await contract.disputeContract();
-        if (disputeContract !== ethers.ZeroAddress) {
-            console.log("📄 Contrat de dispute déjà déployé:", disputeContract);
-            console.log("  ⚠️  Le contrat est déjà en dispute, vous ne pouvez plus envoyer les frais.");
+        dispute = await ethers.getContractAt("DisputeSOXAccount", DISPUTE_ADDRESS);
+        state = Number(await dispute.currState());
+        a = Number(await dispute.a());
+        b = Number(await dispute.b());
+        chall = Number(await dispute.chall());
+        numBlocks = Number(await dispute.numBlocks());
+        numGates = Number(await dispute.numGates());
+        commitment = await dispute.commitment();
+        optimisticAddr = await dispute.optimisticContract();
+        console.log(`✅ Contrat trouvé sur la blockchain\n`);
+    } catch (error: any) {
+        console.log(`⚠️  Contrat non accessible sur la blockchain: ${error.message}`);
+        if (contractRow) {
+            console.log(`   Utilisation des données de la base de données.\n`);
+            numBlocks = contractRow.num_blocks;
+            numGates = contractRow.num_gates;
+            commitment = contractRow.commitment;
+            optimisticAddr = contractRow.optimistic_smart_contract;
         } else {
-            console.log("📄 Contrat de dispute: Non déployé");
+            console.log(`❌ Contrat non trouvé dans la base de données non plus!`);
+            db.close();
+            return;
         }
-    } catch {
-        console.log("📄 Contrat de dispute: Non déployé");
     }
-    console.log("");
 
-    // Vérifier le code du contrat pour voir s'il correspond à la version attendue
-    const code = await provider.getCode(contractAddr);
-    console.log("📦 Code du contrat:");
-    console.log("  Taille du code:", code.length, "caractères");
-    console.log("  Code non vide:", code !== "0x" ? "OUI ✅" : "NON ❌");
-    console.log("");
+    const stateNames: { [key: number]: string } = {
+        0: "ChallengeBuyer",
+        1: "WaitSB",
+        2: "WaitVendorData",
+        3: "WaitVendorDataLeft",
+        4: "WaitVendorDataRight",
+        5: "Complete",
+        6: "Cancel",
+        7: "End",
+    };
 
-    // Si c'est WaitSV et qu'il n'y a pas de sponsor vendor, tester la simulation
-    if (state === 3n && vendorDisputeSponsor === ethers.ZeroAddress) {
-        console.log("🧪 Test de simulation avec le nouveau montant...");
-        const testWallet = deployer;
+    console.log(`📊 ÉTAT DU CONTRAT:`);
+    if (state !== null) {
+        console.log(`   État: ${state} (${stateNames[state] || "UNKNOWN"})`);
+        if (a !== null && b !== null && chall !== null) {
+            console.log(`   a: ${a}, b: ${b}, chall: ${chall}`);
+        }
+    } else {
+        console.log(`   État: Non disponible`);
+    }
+    console.log(`   numBlocks: ${numBlocks}, numGates: ${numGates}`);
+    console.log(`   Commitment: ${commitment}`);
+    console.log(`   OptimisticContract: ${optimisticAddr}\n`);
+
+    // Get key from optimistic contract
+    if (optimisticAddr) {
         try {
-            await contract.connect(testWallet).sendVendorDisputeSponsorFee.staticCall({
-                value: requiredAmount,
-            });
-            console.log("  ✅ Simulation réussie avec le nouveau montant");
+            const optimistic = await ethers.getContractAt("OptimisticSOXAccount", optimisticAddr);
+            key = await optimistic.key();
+            console.log(`🔑 Clé AES: ${key}\n`);
         } catch (e: any) {
-            const errorMsg = e?.reason || e?.message || e?.toString() || "Unknown error";
-            console.log("  ❌ Simulation échouée avec le nouveau montant:", errorMsg);
-            
-            // Essayer avec l'ancien montant si c'est OptimisticSOX
-            if (!isOptimisticSOXAccount && totalBalanceAfterOld >= agreedPrice) {
-                console.log("");
-                console.log("🧪 Test de simulation avec l'ancien montant (compatibilité)...");
-                try {
-                    await contract.connect(testWallet).sendVendorDisputeSponsorFee.staticCall({
-                        value: oldRequiredAmount,
-                    });
-                    console.log("  ✅ Simulation réussie avec l'ancien montant");
-                    console.log("  💡 Le contrat semble être une ancienne version qui attend seulement DISPUTE_FEES + disputeTip");
-                } catch (e2: any) {
-                    const errorMsg2 = e2?.reason || e2?.message || e2?.toString() || "Unknown error";
-                    console.log("  ❌ Simulation échouée aussi avec l'ancien montant:", errorMsg2);
+            console.log(`⚠️  Impossible de récupérer la clé: ${e.message}\n`);
+        }
+    }
+
+    // Check buyer responses
+    if (dispute && chall !== null) {
+        console.log("📋 Buyer Responses:");
+        const maxCheck = Math.min(chall + 2, numGates + 1);
+        for (let i = 1; i <= maxCheck; i++) {
+            try {
+                const response = await dispute.buyerResponses(i);
+                if (response !== ethers.ZeroHash) {
+                    console.log(`   buyerResponses[${i}]: ${response}`);
                 }
+            } catch (e) {
+                // Ignore
             }
         }
-    } else if (state !== 3n) {
-        console.log("⚠️  Le contrat n'est pas dans l'état WaitSV, impossible de tester sendVendorDisputeSponsorFee");
-    } else {
-        console.log("⚠️  Un sponsor vendor est déjà défini, impossible de tester");
+        console.log();
     }
 
-    console.log("");
-    console.log("=".repeat(80));
-    console.log("✅ Diagnostic terminé");
-    console.log("=".repeat(80));
-}
+    // If state is Cancel, analyze why
+    if (state === 6) {
+        console.log("❌ ÉTAT: Cancel (Vendeur a perdu)");
+        console.log("\n🔍 ANALYSE: Pourquoi le vendeur a perdu?\n");
 
-main().catch((error) => {
-    console.error(error);
-    process.exitCode = 1;
-});
-
-import OptimisticSOXAccountArtifact from "../../app/lib/blockchain/contracts/OptimisticSOXAccount.json";
-import OptimisticSOXArtifact from "../../app/lib/blockchain/contracts/OptimisticSOX.json";
-
-/**
- * Script de diagnostic pour analyser un contrat OptimisticSOX/OptimisticSOXAccount
- * Usage: CONTRACT_ADDR=0x... npx hardhat run scripts/diagnoseContract.ts --network localhost
- */
-async function main() {
-    const contractAddr = process.env.CONTRACT_ADDR;
-    if (!contractAddr) {
-        console.error("❌ Veuillez fournir CONTRACT_ADDR");
-        console.error("Usage: CONTRACT_ADDR=0x... npx hardhat run scripts/diagnoseContract.ts --network localhost");
-        process.exit(1);
-    }
-
-    const provider = ethers.provider;
-    const [deployer] = await hre.ethers.getSigners();
-
-    console.log("=".repeat(80));
-    console.log("🔍 DIAGNOSTIC DU CONTRAT");
-    console.log("=".repeat(80));
-    console.log("");
-    console.log("Adresse du contrat:", contractAddr);
-    console.log("");
-
-    // Détecter le type de contrat
-    let contract: ethers.Contract;
-    let isOptimisticSOXAccount = false;
-    let entryPointAddr: string | null = null;
-
-    try {
-        contract = new ethers.Contract(contractAddr, OptimisticSOXAccountArtifact.abi, provider);
-        try {
-            entryPointAddr = await contract.entryPoint();
-            isOptimisticSOXAccount = entryPointAddr !== ethers.ZeroAddress;
-        } catch {
-            // Si entryPoint() n'existe pas, c'est OptimisticSOX
-            contract = new ethers.Contract(contractAddr, OptimisticSOXArtifact.abi, provider);
+        if (!dispute || chall === null || !key) {
+            console.log("⚠️  Données insuffisantes pour analyser complètement");
+            db.close();
+            return;
         }
-    } catch {
-        contract = new ethers.Contract(contractAddr, OptimisticSOXArtifact.abi, provider);
-    }
 
-    console.log("📊 Type de contrat:", isOptimisticSOXAccount ? "OptimisticSOXAccount ✅" : "OptimisticSOX");
-    if (isOptimisticSOXAccount && entryPointAddr) {
-        console.log("  EntryPoint:", entryPointAddr);
-    }
-    console.log("");
+        // Calculate proofs and check wi ≠ wi'
+        if (chall >= 1 && chall <= numGates) {
+            console.log(`🧪 TEST: Simulation de submitCommitment pour challenge=${chall}\n`);
 
-    // Informations de base
-    const state = await contract.currState();
-    const stateNames = ["WaitPayment", "WaitKey", "WaitSB", "WaitSV", "InDispute", "End"];
-    const stateName = stateNames[Number(state)] || `Unknown (${state})`;
-    
-    console.log("📊 État du contrat:");
-    console.log("  État:", stateName, `(${state})`);
-    console.log("");
-
-    const agreedPrice = await contract.agreedPrice();
-    const disputeTip = await contract.disputeTip();
-    const completionTip = await contract.completionTip();
-    const DISPUTE_FEES = 10n;
-
-    console.log("💰 Montants:");
-    console.log("  AgreedPrice:", agreedPrice.toString(), "wei");
-    console.log("  DisputeTip:", disputeTip.toString(), "wei");
-    console.log("  CompletionTip:", completionTip.toString(), "wei");
-    console.log("  DISPUTE_FEES:", DISPUTE_FEES.toString(), "wei");
-    console.log("");
-
-    // Vérifier les sponsors
-    const buyerDisputeSponsor = await contract.buyerDisputeSponsor();
-    const vendorDisputeSponsor = await contract.vendorDisputeSponsor();
-    
-    console.log("👥 Sponsors:");
-    console.log("  Buyer dispute sponsor:", buyerDisputeSponsor);
-    console.log("  Vendor dispute sponsor:", vendorDisputeSponsor);
-    console.log("");
-
-    // Vérifier les balances
-    const contractBalance = await provider.getBalance(contractAddr);
-    console.log("💵 Balances:");
-    console.log("  Balance du contrat:", contractBalance.toString(), "wei");
-    console.log("");
-
-    // Calculer les montants requis
-    const requiredAmount = DISPUTE_FEES + disputeTip + agreedPrice;
-    const oldRequiredAmount = DISPUTE_FEES + disputeTip;
-    const totalBalanceAfter = contractBalance + requiredAmount;
-    const totalBalanceAfterOld = contractBalance + oldRequiredAmount;
-
-    console.log("💳 Montants requis:");
-    console.log("  Nouveau montant (recommandé):", requiredAmount.toString(), "wei");
-    console.log("    (DISPUTE_FEES:", DISPUTE_FEES, "+ disputeTip:", disputeTip.toString(), "+ agreedPrice:", agreedPrice.toString(), ")");
-    console.log("  Ancien montant (compatibilité):", oldRequiredAmount.toString(), "wei");
-    console.log("    (DISPUTE_FEES:", DISPUTE_FEES, "+ disputeTip:", disputeTip.toString(), ")");
-    console.log("");
-
-    console.log("📊 Balance après envoi:");
-    console.log("  Avec nouveau montant:", totalBalanceAfter.toString(), "wei");
-    console.log("  Avec ancien montant:", totalBalanceAfterOld.toString(), "wei");
-    console.log("  AgreedPrice requis:", agreedPrice.toString(), "wei");
-    console.log("  ✅ Balance totale >= AgreedPrice (nouveau):", totalBalanceAfter >= agreedPrice ? "OUI" : "NON");
-    console.log("  ✅ Balance totale >= AgreedPrice (ancien):", totalBalanceAfterOld >= agreedPrice ? "OUI" : "NON");
-    console.log("");
-
-    // Vérifier le contrat de dispute s'il existe
-    try {
-        const disputeContract = await contract.disputeContract();
-        if (disputeContract !== ethers.ZeroAddress) {
-            console.log("📄 Contrat de dispute déjà déployé:", disputeContract);
-            console.log("  ⚠️  Le contrat est déjà en dispute, vous ne pouvez plus envoyer les frais.");
-        } else {
-            console.log("📄 Contrat de dispute: Non déployé");
-        }
-    } catch {
-        console.log("📄 Contrat de dispute: Non déployé");
-    }
-    console.log("");
-
-    // Vérifier le code du contrat pour voir s'il correspond à la version attendue
-    const code = await provider.getCode(contractAddr);
-    console.log("📦 Code du contrat:");
-    console.log("  Taille du code:", code.length, "caractères");
-    console.log("  Code non vide:", code !== "0x" ? "OUI ✅" : "NON ❌");
-    console.log("");
-
-    // Si c'est WaitSV et qu'il n'y a pas de sponsor vendor, tester la simulation
-    if (state === 3n && vendorDisputeSponsor === ethers.ZeroAddress) {
-        console.log("🧪 Test de simulation avec le nouveau montant...");
-        const testWallet = deployer;
-        try {
-            await contract.connect(testWallet).sendVendorDisputeSponsorFee.staticCall({
-                value: requiredAmount,
-            });
-            console.log("  ✅ Simulation réussie avec le nouveau montant");
-        } catch (e: any) {
-            const errorMsg = e?.reason || e?.message || e?.toString() || "Unknown error";
-            console.log("  ❌ Simulation échouée avec le nouveau montant:", errorMsg);
-            
-            // Essayer avec l'ancien montant si c'est OptimisticSOX
-            if (!isOptimisticSOXAccount && totalBalanceAfterOld >= agreedPrice) {
-                console.log("");
-                console.log("🧪 Test de simulation avec l'ancien montant (compatibilité)...");
-                try {
-                    await contract.connect(testWallet).sendVendorDisputeSponsorFee.staticCall({
-                        value: oldRequiredAmount,
-                    });
-                    console.log("  ✅ Simulation réussie avec l'ancien montant");
-                    console.log("  💡 Le contrat semble être une ancienne version qui attend seulement DISPUTE_FEES + disputeTip");
-                } catch (e2: any) {
-                    const errorMsg2 = e2?.reason || e2?.message || e2?.toString() || "Unknown error";
-                    console.log("  ❌ Simulation échouée aussi avec l'ancien montant:", errorMsg2);
+            try {
+                const buyerResponse = await dispute.buyerResponses(chall);
+                if (buyerResponse === ethers.ZeroHash) {
+                    console.log(`❌ buyerResponses[${chall}] n'est pas défini!`);
+                    db.close();
+                    return;
                 }
-            }
-        }
-    } else if (state !== 3n) {
-        console.log("⚠️  Le contrat n'est pas dans l'état WaitSV, impossible de tester sendVendorDisputeSponsorFee");
-    } else {
-        console.log("⚠️  Un sponsor vendor est déjà défini, impossible de tester");
-    }
 
-    console.log("");
-    console.log("=".repeat(80));
-    console.log("✅ Diagnostic terminé");
-    console.log("=".repeat(80));
-}
+                console.log(`📊 Calcul des preuves...`);
+                const openingValueHex = contractRow.opening_value.startsWith('0x') 
+                    ? contractRow.opening_value 
+                    : '0x' + contractRow.opening_value;
+                const itemDescriptionBytes = new Uint8Array(Buffer.from(contractRow.item_description.slice(2), 'hex'));
 
-main().catch((error) => {
-    console.error(error);
-    process.exitCode = 1;
-});
+                const keyUint8Array = new Uint8Array(ethers.getBytes(ethers.hexlify(key)));
+                const precontract = compute_precontract_values_v2(itemDescriptionBytes, keyUint8Array);
+                const circuit = new Uint8Array(precontract.circuit_bytes);
+                const ct = new Uint8Array(precontract.ct);
+                const evaluatedCircuit = evaluate_circuit_v2_wasm(circuit, ct, bytes_to_hex(keyUint8Array));
+                const evaluatedCircuitBytes = evaluatedCircuit.to_bytes();
 
-import OptimisticSOXAccountArtifact from "../../app/lib/blockchain/contracts/OptimisticSOXAccount.json";
-import OptimisticSOXArtifact from "../../app/lib/blockchain/contracts/OptimisticSOX.json";
+                const proofs = compute_proofs_v2(circuit, evaluatedCircuitBytes, ct, chall);
+                const currAccBytes32 = ethers.hexlify(proofs.curr_acc);
 
-/**
- * Script de diagnostic pour analyser un contrat OptimisticSOX/OptimisticSOXAccount
- * Usage: CONTRACT_ADDR=0x... npx hardhat run scripts/diagnoseContract.ts --network localhost
- */
-async function main() {
-    const contractAddr = process.env.CONTRACT_ADDR;
-    if (!contractAddr) {
-        console.error("❌ Veuillez fournir CONTRACT_ADDR");
-        console.error("Usage: CONTRACT_ADDR=0x... npx hardhat run scripts/diagnoseContract.ts --network localhost");
-        process.exit(1);
-    }
+                console.log(`\n📊 COMPARAISON wi vs wi':`);
+                console.log(`   _currAcc (wi) calculé: ${currAccBytes32}`);
+                console.log(`   buyerResponses[${chall}] (wi'): ${buyerResponse}`);
 
-    const provider = ethers.provider;
-    const [deployer] = await hre.ethers.getSigners();
-
-    console.log("=".repeat(80));
-    console.log("🔍 DIAGNOSTIC DU CONTRAT");
-    console.log("=".repeat(80));
-    console.log("");
-    console.log("Adresse du contrat:", contractAddr);
-    console.log("");
-
-    // Détecter le type de contrat
-    let contract: ethers.Contract;
-    let isOptimisticSOXAccount = false;
-    let entryPointAddr: string | null = null;
-
-    try {
-        contract = new ethers.Contract(contractAddr, OptimisticSOXAccountArtifact.abi, provider);
-        try {
-            entryPointAddr = await contract.entryPoint();
-            isOptimisticSOXAccount = entryPointAddr !== ethers.ZeroAddress;
-        } catch {
-            // Si entryPoint() n'existe pas, c'est OptimisticSOX
-            contract = new ethers.Contract(contractAddr, OptimisticSOXArtifact.abi, provider);
-        }
-    } catch {
-        contract = new ethers.Contract(contractAddr, OptimisticSOXArtifact.abi, provider);
-    }
-
-    console.log("📊 Type de contrat:", isOptimisticSOXAccount ? "OptimisticSOXAccount ✅" : "OptimisticSOX");
-    if (isOptimisticSOXAccount && entryPointAddr) {
-        console.log("  EntryPoint:", entryPointAddr);
-    }
-    console.log("");
-
-    // Informations de base
-    const state = await contract.currState();
-    const stateNames = ["WaitPayment", "WaitKey", "WaitSB", "WaitSV", "InDispute", "End"];
-    const stateName = stateNames[Number(state)] || `Unknown (${state})`;
-    
-    console.log("📊 État du contrat:");
-    console.log("  État:", stateName, `(${state})`);
-    console.log("");
-
-    const agreedPrice = await contract.agreedPrice();
-    const disputeTip = await contract.disputeTip();
-    const completionTip = await contract.completionTip();
-    const DISPUTE_FEES = 10n;
-
-    console.log("💰 Montants:");
-    console.log("  AgreedPrice:", agreedPrice.toString(), "wei");
-    console.log("  DisputeTip:", disputeTip.toString(), "wei");
-    console.log("  CompletionTip:", completionTip.toString(), "wei");
-    console.log("  DISPUTE_FEES:", DISPUTE_FEES.toString(), "wei");
-    console.log("");
-
-    // Vérifier les sponsors
-    const buyerDisputeSponsor = await contract.buyerDisputeSponsor();
-    const vendorDisputeSponsor = await contract.vendorDisputeSponsor();
-    
-    console.log("👥 Sponsors:");
-    console.log("  Buyer dispute sponsor:", buyerDisputeSponsor);
-    console.log("  Vendor dispute sponsor:", vendorDisputeSponsor);
-    console.log("");
-
-    // Vérifier les balances
-    const contractBalance = await provider.getBalance(contractAddr);
-    console.log("💵 Balances:");
-    console.log("  Balance du contrat:", contractBalance.toString(), "wei");
-    console.log("");
-
-    // Calculer les montants requis
-    const requiredAmount = DISPUTE_FEES + disputeTip + agreedPrice;
-    const oldRequiredAmount = DISPUTE_FEES + disputeTip;
-    const totalBalanceAfter = contractBalance + requiredAmount;
-    const totalBalanceAfterOld = contractBalance + oldRequiredAmount;
-
-    console.log("💳 Montants requis:");
-    console.log("  Nouveau montant (recommandé):", requiredAmount.toString(), "wei");
-    console.log("    (DISPUTE_FEES:", DISPUTE_FEES, "+ disputeTip:", disputeTip.toString(), "+ agreedPrice:", agreedPrice.toString(), ")");
-    console.log("  Ancien montant (compatibilité):", oldRequiredAmount.toString(), "wei");
-    console.log("    (DISPUTE_FEES:", DISPUTE_FEES, "+ disputeTip:", disputeTip.toString(), ")");
-    console.log("");
-
-    console.log("📊 Balance après envoi:");
-    console.log("  Avec nouveau montant:", totalBalanceAfter.toString(), "wei");
-    console.log("  Avec ancien montant:", totalBalanceAfterOld.toString(), "wei");
-    console.log("  AgreedPrice requis:", agreedPrice.toString(), "wei");
-    console.log("  ✅ Balance totale >= AgreedPrice (nouveau):", totalBalanceAfter >= agreedPrice ? "OUI" : "NON");
-    console.log("  ✅ Balance totale >= AgreedPrice (ancien):", totalBalanceAfterOld >= agreedPrice ? "OUI" : "NON");
-    console.log("");
-
-    // Vérifier le contrat de dispute s'il existe
-    try {
-        const disputeContract = await contract.disputeContract();
-        if (disputeContract !== ethers.ZeroAddress) {
-            console.log("📄 Contrat de dispute déjà déployé:", disputeContract);
-            console.log("  ⚠️  Le contrat est déjà en dispute, vous ne pouvez plus envoyer les frais.");
-        } else {
-            console.log("📄 Contrat de dispute: Non déployé");
-        }
-    } catch {
-        console.log("📄 Contrat de dispute: Non déployé");
-    }
-    console.log("");
-
-    // Vérifier le code du contrat pour voir s'il correspond à la version attendue
-    const code = await provider.getCode(contractAddr);
-    console.log("📦 Code du contrat:");
-    console.log("  Taille du code:", code.length, "caractères");
-    console.log("  Code non vide:", code !== "0x" ? "OUI ✅" : "NON ❌");
-    console.log("");
-
-    // Si c'est WaitSV et qu'il n'y a pas de sponsor vendor, tester la simulation
-    if (state === 3n && vendorDisputeSponsor === ethers.ZeroAddress) {
-        console.log("🧪 Test de simulation avec le nouveau montant...");
-        const testWallet = deployer;
-        try {
-            await contract.connect(testWallet).sendVendorDisputeSponsorFee.staticCall({
-                value: requiredAmount,
-            });
-            console.log("  ✅ Simulation réussie avec le nouveau montant");
-        } catch (e: any) {
-            const errorMsg = e?.reason || e?.message || e?.toString() || "Unknown error";
-            console.log("  ❌ Simulation échouée avec le nouveau montant:", errorMsg);
-            
-            // Essayer avec l'ancien montant si c'est OptimisticSOX
-            if (!isOptimisticSOXAccount && totalBalanceAfterOld >= agreedPrice) {
-                console.log("");
-                console.log("🧪 Test de simulation avec l'ancien montant (compatibilité)...");
-                try {
-                    await contract.connect(testWallet).sendVendorDisputeSponsorFee.staticCall({
-                        value: oldRequiredAmount,
-                    });
-                    console.log("  ✅ Simulation réussie avec l'ancien montant");
-                    console.log("  💡 Le contrat semble être une ancienne version qui attend seulement DISPUTE_FEES + disputeTip");
-                } catch (e2: any) {
-                    const errorMsg2 = e2?.reason || e2?.message || e2?.toString() || "Unknown error";
-                    console.log("  ❌ Simulation échouée aussi avec l'ancien montant:", errorMsg2);
+                if (buyerResponse.toLowerCase() === currAccBytes32.toLowerCase()) {
+                    console.log(`\n❌ PROBLÈME IDENTIFIÉ: wi == wi'`);
+                    console.log(`   buyerResponses[${chall}] == _currAcc`);
+                    console.log(`   La condition wi ≠ wi' dans Step 8a a échoué!`);
+                    console.log(`   C'est pourquoi le vendeur a perdu.`);
+                    console.log(`\n💡 EXPLICATION:`);
+                    console.log(`   Si wi == wi', cela signifie que le buyer n'a pas menti`);
+                    console.log(`   (ou que les fichiers sont identiques).`);
+                    console.log(`   Dans Step 8a, le vendeur doit prouver une DIVERGENCE`);
+                    console.log(`   pour gagner. Sans divergence, il ne peut pas gagner.`);
+                } else {
+                    console.log(`\n✅ wi ≠ wi' (divergence détectée)`);
+                    console.log(`   La condition wi ≠ wi' sera satisfaite.`);
+                    console.log(`   Si le vendeur a perdu, le problème doit être ailleurs:`);
+                    console.log(`   - Preuves invalides (proof1, proof2, proof3, proofExt)`);
+                    console.log(`   - Problème d'indexation (IV dans proof2)`);
+                    console.log(`   - Le contrat utilise une ancienne version du code`);
                 }
+            } catch (error: any) {
+                console.log(`⚠️  Erreur lors de l'analyse: ${error.message}`);
+                console.log(error.stack);
             }
+        } else if (chall === 1) {
+            console.log(`🧪 TEST: Simulation de submitCommitmentLeft pour challenge=1`);
+            console.log("   (Analyse similaire à faire)");
         }
-    } else if (state !== 3n) {
-        console.log("⚠️  Le contrat n'est pas dans l'état WaitSV, impossible de tester sendVendorDisputeSponsorFee");
-    } else {
-        console.log("⚠️  Un sponsor vendor est déjà défini, impossible de tester");
+    } else if (state === 5) {
+        console.log("✅ ÉTAT: Complete (Vendeur a gagné)");
+    } else if (state !== null) {
+        console.log(`📊 État actuel: ${stateNames[state] || "UNKNOWN"}`);
+        console.log("   (Le contrat n'est pas encore dans l'état Cancel ou Complete)");
     }
 
-    console.log("");
-    console.log("=".repeat(80));
-    console.log("✅ Diagnostic terminé");
-    console.log("=".repeat(80));
+    console.log("\n" + "=".repeat(80));
+    db.close();
 }
 
 main().catch((error) => {
