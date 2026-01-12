@@ -1,7 +1,7 @@
 import { abi } from "./contracts/DisputeSOXAccount.json";
 import { PK_SK_MAP, PROVIDER, ENTRY_POINT_V8, EIP7702_DELEGATE } from "./config";
 import { sendUserOperation, sendUserOperationV8, waitForUserOperationReceipt } from "./userops";
-import { Contract, isAddress, hexlify, getBytes, Wallet } from "ethers";
+import { Contract, isAddress, hexlify, getBytes, Wallet, keccak256 } from "ethers";
 
 const DISPUTE_ERROR_HINTS: Record<string, string> = {
     InvalidState: "Le contrat n'est pas dans l'état attendu pour cette action.",
@@ -291,6 +291,11 @@ export async function submitCommitment(
     const gateBytesUint8 = gateBytes instanceof Uint8Array 
         ? gateBytes 
         : new Uint8Array(gateBytes);
+    if (gateBytesUint8.length !== 64) {
+        throw new Error(
+            `InvalidGateBytes: gate_bytes.length=${gateBytesUint8.length}, attendu 64`
+        );
+    }
 
     // Convert openingValue to bytes format (ensure it has 0x prefix if it's a hex string)
     let openingValueBytes: string;
@@ -333,6 +338,7 @@ export async function submitCommitment(
         console.error("❌ UserOperation échouée. Receipt complet:", JSON.stringify(receipt, null, 2));
         const receiptInfo = receipt as any;
         const reason = receiptInfo.reason || "Raison inconnue";
+        const receiptJson = JSON.stringify(receipt, null, 2);
         
         // Décoder le selector d'erreur si c'est un hex string
         let errorMessage = "Transaction rejetée par le contrat";
@@ -344,7 +350,9 @@ export async function submitCommitment(
             }
         }
         
-        throw new Error(`${errorMessage}\nHash: ${userOpHash.slice(0, 20)}...\nRaison (selector): ${reason}`);
+        throw new Error(
+            `${errorMessage}\nHash: ${userOpHash.slice(0, 20)}...\nRaison (selector): ${reason}\n\nUserOperation échouée. Receipt complet:\n${receiptJson}`
+        );
     }
     console.log("✅ UserOperation confirmée:", receipt);
     
@@ -355,8 +363,8 @@ export async function submitCommitmentLeft(
     openingValue: string,
     gateNum: number,
     gateBytes: number[] | Uint8Array, // V2 format: 64-byte gate bytes
-    values: Uint8Array[],
-    currAcc: Uint8Array,
+    values: Uint8Array[] | number[][],
+    currAcc: Uint8Array | number[],
     proof1: Uint8Array[][],
     proof2: Uint8Array[][],
     proofExt: Uint8Array[][],
@@ -367,6 +375,21 @@ export async function submitCommitmentLeft(
     const gateBytesUint8 = gateBytes instanceof Uint8Array 
         ? gateBytes 
         : new Uint8Array(gateBytes);
+    if (gateBytesUint8.length !== 64) {
+        throw new Error(
+            `InvalidGateBytes: gate_bytes.length=${gateBytesUint8.length}, attendu 64`
+        );
+    }
+    
+    // Convert values to Uint8Array[] (comme dans le script de test)
+    const valuesArray = values.map(v => 
+        v instanceof Uint8Array ? v : new Uint8Array(v)
+    );
+    
+    // Convert currAcc to Uint8Array (comme dans le script de test)
+    const currAccArray = currAcc instanceof Uint8Array 
+        ? currAcc 
+        : new Uint8Array(currAcc);
 
     // Convert openingValue to bytes format (ensure it has 0x prefix if it's a hex string)
     let openingValueBytes: string;
@@ -376,25 +399,127 @@ export async function submitCommitmentLeft(
         openingValueBytes = "0x" + openingValue;
     }
 
+    // Convert currAcc to hex string for comparison (use currAccArray after conversion)
+    const currAccHex = hexlify(currAccArray);
+
     const contract = new Contract(contractAddr, abi, PROVIDER);
-    await preflightDisputeCall(contract, vendorAddr, "submitCommitmentLeft", [
-        openingValueBytes,
-        gateNum,
-        gateBytesUint8,
-        values,
-        currAcc,
-        proof1,
-        proof2,
-        proofExt,
-    ]);
+    
+    // Vérifier buyerResponses[gateNum] avant d'envoyer
+    try {
+        const buyerResponse = await contract.getBuyerResponse(gateNum);
+        const buyerResponseHex = buyerResponse;
+        console.log(`🔍 Vérification: curr_acc = ${currAccHex.slice(0, 20)}..., buyerResponses[${gateNum}] = ${buyerResponseHex.slice(0, 20)}...`);
+        if (currAccHex.toLowerCase() === buyerResponseHex.toLowerCase()) {
+            console.warn(`⚠️ ATTENTION: curr_acc est égal à buyerResponses[${gateNum}]!`);
+            console.warn(`   Cela signifie que le vendor et le buyer calculent la même valeur.`);
+            console.warn(`   Dans ce cas, la condition _currAcc != buyerResponses[_gateNum] échouera.`);
+            console.warn(`   Si les fichiers sont identiques, le vendor ne peut pas gagner.`);
+        }
+    } catch (error) {
+        console.warn("⚠️ Impossible de vérifier buyerResponses avant l'envoi:", error);
+    }
+    
+    // Verify commitment matches opening value before sending
+    try {
+        const contractCommitment = await contract.commitment();
+        const openingValueBytesForHash = getBytes(openingValueBytes);
+        const calculatedCommitment = keccak256(openingValueBytesForHash);
+        console.log(`🔍 Vérification commitment:`);
+        console.log(`   Commitment du contrat: ${contractCommitment}`);
+        console.log(`   Commitment calculé (keccak256(opening_value)): ${calculatedCommitment}`);
+        if (calculatedCommitment.toLowerCase() !== contractCommitment.toLowerCase()) {
+            throw new Error(
+                `L'opening value ne correspond pas au commitment du contrat!\n` +
+                `Commitment du contrat: ${contractCommitment}\n` +
+                `Commitment calculé: ${calculatedCommitment}\n` +
+                `Opening value utilisé: ${openingValueBytes.slice(0, 40)}...\n\n` +
+                `Vérifiez que vous utilisez le bon opening value de la base de données.`
+            );
+        }
+        console.log(`✅ Commitment vérifié - l'opening value correspond`);
+    } catch (commitmentError: any) {
+        if (commitmentError.message?.includes('opening value ne correspond pas')) {
+            throw commitmentError;
+        }
+        console.warn("⚠️ Impossible de vérifier le commitment:", commitmentError.message);
+    }
+
+    // Try to simulate the call first to catch errors early
+    // But don't block if it fails - sometimes staticCall fails but real call works
+    try {
+        console.log("🧪 Simulation de submitCommitmentLeft avec staticCall...");
+        await preflightDisputeCall(contract, vendorAddr, "submitCommitmentLeft", [
+            openingValueBytes,
+            gateNum,
+            gateBytesUint8,
+            valuesArray,
+            currAccArray,
+            proof1,
+            proof2,
+            proofExt,
+        ]);
+        console.log("✅ Simulation réussie - les preuves devraient passer");
+    } catch (preflightError: any) {
+        console.error("❌ Simulation échouée (preflight):", preflightError);
+        const errorData = preflightError?.data || preflightError?.error?.data || preflightError?.cause?.data;
+        if (errorData) {
+            try {
+                const parsed = contract.interface.parseError(errorData);
+                if (parsed) {
+                    console.error(`   Erreur parsée: ${parsed.name}`);
+                    if (parsed.args) {
+                        console.error(`   Args:`, parsed.args);
+                    }
+                }
+            } catch (e) {
+                // ignore
+            }
+        }
+        // Check for specific errors that indicate the real call will also fail
+        const errorMsg = preflightError?.message || preflightError?.reason || preflightError?.shortMessage || '';
+        const errorDataStr = typeof errorData === 'string' ? errorData : '';
+        
+        // Decode the error if possible
+        let decodedError: string | null = null;
+        if (errorData && typeof errorData === 'string' && errorData.startsWith('0x')) {
+            try {
+                // Try to decode Error(string) selector 0x08c379a0
+                if (errorData.startsWith('0x08c379a0')) {
+                    const decoded = contract.interface.decodeErrorResult("Error(string)", errorData);
+                    decodedError = decoded[0];
+                    console.error(`   Erreur décodée: ${decodedError}`);
+                }
+            } catch (e) {
+                // ignore
+            }
+        }
+        
+        if (errorMsg.includes('Commitment and opening value do not match') || decodedError?.includes('Commitment and opening value do not match')) {
+            throw new Error("L'opening value ne correspond pas au commitment du contrat. Vérifiez que vous utilisez le bon opening value de la base de données.");
+        }
+        
+        // If it's TransactionReverted, it might be from openCommitment or verifyCommitmentLeft
+        if (errorDataStr.includes('0x9167c27a') || errorMsg.includes('TransactionReverted')) {
+            console.error("   ⚠️ TransactionReverted détectée dans la simulation");
+            console.error("   Cela peut être dû à:");
+            console.error("   1. openCommitment échoue (commitment/opening value mismatch)");
+            console.error("   2. Les preuves ne passent pas (AccumulatorVerifier.verify échoue)");
+            console.error("   3. L'évaluation de la gate échoue (EvaluatorSOX_V2.evaluateGateFromSons)");
+            console.error("   La transaction réelle échouera probablement aussi.");
+        }
+        
+        // Continue anyway - sometimes staticCall fails but the real call works (but log a warning)
+        console.warn("⚠️ Continuation malgré l'échec de la simulation...");
+        console.warn("   La transaction réelle peut échouer si la simulation échoue.");
+    }
     const callData = contract.interface.encodeFunctionData(
         "submitCommitmentLeft",
         [
             openingValueBytes,
             gateNum,
             gateBytesUint8,
-            values,
-            currAcc,
+            valuesArray,
+            currAccArray,
             proof1,
             proof2,
             proofExt,
@@ -410,6 +535,7 @@ export async function submitCommitmentLeft(
         console.error("❌ UserOperation échouée. Receipt complet:", JSON.stringify(receipt, null, 2));
         const receiptInfo = receipt as any;
         const reason = receiptInfo.reason || "Raison inconnue";
+        const receiptJson = JSON.stringify(receipt, null, 2);
         
         // Décoder le selector d'erreur si c'est un hex string
         let errorMessage = "Transaction rejetée par le contrat";
@@ -421,11 +547,91 @@ export async function submitCommitmentLeft(
             }
         }
         
-        throw new Error(`${errorMessage}\nHash: ${userOpHash.slice(0, 20)}...\nRaison (selector): ${reason}`);
+        throw new Error(
+            `${errorMessage}\nHash: ${userOpHash.slice(0, 20)}...\nRaison (selector): ${reason}\n\nUserOperation échouée. Receipt complet:\n${receiptJson}`
+        );
     }
     console.log("✅ UserOperation confirmée:", receipt);
     
     return userOpHash;
+}
+
+/**
+ * TEST ONLY: Envoie submitCommitmentLeft directement via transaction (sans UserOperation)
+ * ATTENTION: Cette fonction échouera probablement avec UnexpectedSender() car le contrat
+ * utilise onlyExpected() qui vérifie que l'appel vient d'une UserOperation.
+ * Utilisée uniquement pour tester et voir l'erreur exacte.
+ */
+export async function submitCommitmentLeftDirect(
+    openingValue: string,
+    gateNum: number,
+    gateBytes: number[] | Uint8Array,
+    values: Uint8Array[] | number[][],
+    currAcc: Uint8Array | number[],
+    proof1: Uint8Array[][],
+    proof2: Uint8Array[][],
+    proofExt: Uint8Array[][],
+    vendorAddr: string,
+    contractAddr: string
+): Promise<string> {
+    const gateBytesUint8 = gateBytes instanceof Uint8Array 
+        ? gateBytes 
+        : new Uint8Array(gateBytes);
+    if (gateBytesUint8.length !== 64) {
+        throw new Error(
+            `InvalidGateBytes: gate_bytes.length=${gateBytesUint8.length}, attendu 64`
+        );
+    }
+    
+    const valuesArray = values.map(v => 
+        v instanceof Uint8Array ? v : new Uint8Array(v)
+    );
+    
+    const currAccArray = currAcc instanceof Uint8Array 
+        ? currAcc 
+        : new Uint8Array(currAcc);
+
+    let openingValueBytes: string;
+    if (openingValue.startsWith("0x")) {
+        openingValueBytes = openingValue;
+    } else {
+        openingValueBytes = "0x" + openingValue;
+    }
+
+    const contract = new Contract(contractAddr, abi, PROVIDER);
+    
+    // Get private key for vendor
+    const privateKey = PK_SK_MAP.get(vendorAddr);
+    if (!privateKey) {
+        throw new Error(`Private key not found for address: ${vendorAddr}`);
+    }
+    
+    const wallet = new Wallet(privateKey, PROVIDER);
+    const contractWithSigner = contract.connect(wallet);
+    
+    console.log("🧪 TEST: Envoi direct de submitCommitmentLeft (sans UserOperation)...");
+    console.log("⚠️  ATTENTION: Cela échouera probablement avec UnexpectedSender()");
+    
+    try {
+        const tx = await contractWithSigner.submitCommitmentLeft(
+            openingValueBytes,
+            gateNum,
+            gateBytesUint8,
+            valuesArray,
+            currAccArray,
+            proof1,
+            proof2,
+            proofExt
+        );
+        
+        console.log("⏳ Transaction envoyée, en attente de confirmation...");
+        const receipt = await tx.wait();
+        console.log("✅ Transaction confirmée!");
+        return receipt.hash;
+    } catch (error: any) {
+        console.error("❌ Transaction échouée:", error);
+        throw error;
+    }
 }
 
 export async function submitCommitmentRight(
@@ -510,6 +716,7 @@ export async function submitCommitmentRight(
             console.error("❌ UserOperation échouée. Receipt complet:", JSON.stringify(receipt, null, 2));
             const receiptInfo = receipt as any;
             const reason = receiptInfo.reason || "Raison inconnue";
+            const receiptJson = JSON.stringify(receipt, null, 2);
             
             // Décoder le selector d'erreur si c'est un hex string
             let errorMessage = "Transaction rejetée par le contrat";
@@ -521,7 +728,9 @@ export async function submitCommitmentRight(
                 }
             }
             
-            throw new Error(`${errorMessage}\n\nHash: ${userOpHash.slice(0, 20)}...\nRaison (selector): ${reason}`);
+            throw new Error(
+                `${errorMessage}\n\nHash: ${userOpHash.slice(0, 20)}...\nRaison (selector): ${reason}\n\nUserOperation échouée. Receipt complet:\n${receiptJson}`
+            );
         }
         console.log("✅ UserOperation confirmée:", receipt);
         

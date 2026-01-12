@@ -566,12 +566,8 @@ contract DisputeSOX {
         nextTimeoutTime = block.timestamp + timeoutIncrement;
     }
 
-    function getAesKey() internal view returns (bytes16 aesKey) {
-        bytes memory keyBytes = optimisticContract.key();
-        require(keyBytes.length == 16, "AES key must be 16 bytes");
-        assembly {
-            aesKey := mload(add(keyBytes, 32))
-        }
+    function getAesKey() internal view returns (bytes16) {
+        return optimisticContract.key();
     }
 
     // Opens the commitment with the provided opening value and parses the result

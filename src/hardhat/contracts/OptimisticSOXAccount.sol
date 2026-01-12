@@ -24,7 +24,7 @@ interface IOptimisticSOX {
     function sponsor() external view returns (address);
     function buyerDisputeSponsor() external view returns (address);
     function vendorDisputeSponsor() external view returns (address);
-    function key() external view returns (bytes memory);
+    function key() external view returns (bytes16);
     function agreedPrice() external view returns (uint256);
     function timeoutIncrement() external view returns (uint256);
     function currState() external view returns (OptimisticState);
@@ -119,7 +119,7 @@ contract OptimisticSOXAccount is IOptimisticSOX {
     address public disputeContract;
 
     OptimisticState public currState;
-    bytes public key;
+    bytes16 public key;
     uint256 public agreedPrice;
     uint256 public completionTip;
     uint256 public disputeTip;
@@ -376,7 +376,7 @@ contract OptimisticSOXAccount is IOptimisticSOX {
     }
 
     function sendKey(
-        bytes calldata _key
+        bytes16 _key
     ) public onlyExpected(vendor, OptimisticState.WaitKey) {
         key = _key;
         nextState(OptimisticState.WaitSB);
@@ -442,17 +442,15 @@ contract OptimisticSOXAccount is IOptimisticSOX {
         nextState(OptimisticState.End);
     }
 
-    function completeTransaction() public {
-        require(
-            currState == OptimisticState.WaitSB,
-            "Not in a state where the transaction can be completed"
-        );
-
-        if (msg.sender != buyer) {
-            require(timeoutHasPassed(), "Timeout has not passed");
-        }
-
+    function completeTransaction() public onlyExpected(buyer, OptimisticState.WaitSB) {
         payable(vendor).transfer(agreedPrice);
+        
+        // Withdraw any remaining EntryPoint deposit to the sponsor before transferring balance
+        uint256 entryPointDeposit = entryPoint.balanceOf(address(this));
+        if (entryPointDeposit > 0) {
+            entryPoint.withdrawTo(payable(sponsor), entryPointDeposit);
+        }
+        
         payable(sponsor).transfer(address(this).balance);
         nextState(OptimisticState.End);
     }

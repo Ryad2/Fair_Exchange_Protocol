@@ -13,6 +13,7 @@ import {
     getDetails,
     sendKey,
     sendPayment,
+    endOptimisticTimeout,
 } from "@/app/lib/blockchain/optimistic";
 import { ENTRY_POINT_V8, EIP7702_DELEGATE } from "@/app/lib/blockchain/config";
 import {
@@ -23,6 +24,7 @@ import {
     respondChallenge,
     submitCommitment,
     submitCommitmentLeft,
+    submitCommitmentLeftDirect,
     submitCommitmentRight,
     getDisputeDetails,
     getDisputeState,
@@ -227,7 +229,7 @@ export default function OngoingContractModal({
         if (paymentStatus === "idle") {
             return (
                 <div className="text-xs text-gray-500">
-                    Mode: Direct transaction (buyer pays directly)
+                    Mode: {eip7702Configured ? "EIP-7702 (sponsor gas)" : "Direct transaction"}
                 </div>
             );
         }
@@ -318,16 +320,22 @@ export default function OngoingContractModal({
                 if (publicKey == pk_buyer)
                     return (
                         <>
-                            <div className="flex gap-8 justify-between w-full items-center mb-8">
+                            <div className="flex gap-8 justify-between w-full items-center mb-4">
                                 <Button
                                     label="Decrypt file"
                                     onClick={clickDecryptFile}
                                 />
                             </div>
-                            <div className="flex gap-8 justify-between w-full items-center">
+                            <div className="flex gap-8 justify-between w-full items-center mb-4">
                                 <Button
                                     label={`Post argument`}
                                     onClick={clickBuyerPostArgument}
+                                />
+                            </div>
+                            <div className="flex gap-8 justify-between w-full items-center">
+                                <Button
+                                    label="Complete transaction"
+                                    onClick={clickCompleteTransaction}
                                 />
                             </div>
                         </>
@@ -355,12 +363,11 @@ export default function OngoingContractModal({
             console.warn("Paiement déjà en cours, ignorer le clic");
             return;
         }
-
-        // FORCER le mode "direct" - pas besoin de EIP-7702
-        console.log("💳 Mode de paiement: DIRECT (transaction normale, pas EIP-7702)");
+        const mode = eip7702Configured ? "eip-7702" : "direct";
+        console.log(`💳 Mode de paiement: ${mode.toUpperCase()}`);
 
         setPaymentStatus("submitting");
-        setPaymentMode("direct");
+        setPaymentMode(mode);
         setPaymentUserOpHash(null);
         setPaymentTxHash(null);
         setPaymentError(null);
@@ -370,19 +377,15 @@ export default function OngoingContractModal({
                 publicKey,
                 contract: contract.optimistic_smart_contract,
                 amount: paymentAmount,
-                mode: "direct",
-                note: "Mode direct - pas besoin de EIP-7702 config"
+                mode,
             });
 
-            // Utiliser le mode "direct" (transaction normale) - Option A
-            // Le buyer paie directement avec une transaction normale
-            // PAS besoin de EIP-7702 pour ce mode
             const res = await sendPayment(
                 publicKey,
                 contract.optimistic_smart_contract,
                 paymentAmount,
                 {
-                    mode: "direct",
+                    mode,
                     waitForReceipt: true,
                 }
             );
@@ -468,10 +471,38 @@ export default function OngoingContractModal({
                     });
                     
                     console.log("✅ UserOperation confirmée:", receipt);
+                    let keyCheckMessage = "";
+                    try {
+                        const basicInfo = await getBasicInfo(
+                            optimistic_smart_contract,
+                            false
+                        );
+                        const onChainKey = basicInfo?.key || "0x";
+                        const keyHex = onChainKey.startsWith("0x")
+                            ? onChainKey.slice(2)
+                            : onChainKey;
+                        if (keyHex.length % 2 !== 0) {
+                            keyCheckMessage =
+                                "\n⚠️ Clé on-chain: longueur hex invalide.";
+                        } else {
+                            const keyBytesLength = keyHex.length / 2;
+                            keyCheckMessage =
+                                keyBytesLength === 16
+                                    ? "\n✅ Clé on-chain: 16 bytes."
+                                    : `\n⚠️ Clé on-chain: ${keyBytesLength} bytes (attendu 16).`;
+                        }
+                    } catch (keyError) {
+                        console.warn("⚠️ Impossible de vérifier la clé:", keyError);
+                        keyCheckMessage = "\n⚠️ Impossible de vérifier la clé on-chain.";
+                    }
                     if (receipt?.receipt?.transactionHash) {
-                        alert(`Clé envoyée et confirmée! Transaction: ${receipt.receipt.transactionHash.substring(0, 20)}...`);
+                        alert(
+                            `Clé envoyée et confirmée! Transaction: ${receipt.receipt.transactionHash.substring(0, 20)}...${keyCheckMessage}`
+                        );
                     } else {
-                        alert(`Clé envoyée et confirmée! Hash UserOp: ${userOpHash.substring(0, 20)}...`);
+                        alert(
+                            `Clé envoyée et confirmée! Hash UserOp: ${userOpHash.substring(0, 20)}...${keyCheckMessage}`
+                        );
                     }
                     
                     // Rafraîchir les données après confirmation
@@ -592,6 +623,18 @@ export default function OngoingContractModal({
             }
         } catch {
             alert("Something went wrong during decryption");
+        }
+    };
+
+    const clickCompleteTransaction = async () => {
+        await init();
+        try {
+            await endOptimisticTimeout(optimistic_smart_contract!, publicKey);
+            alert("Transaction completed successfully");
+            onClose();
+            window.dispatchEvent(new Event("reloadData"));
+        } catch (error: any) {
+            alert(`Error: ${error.message || error}`);
         }
     };
 
@@ -824,9 +867,21 @@ export default function OngoingContractModal({
                     ct,
                     Number(challenge)
                 );
+                if (gate_bytes.length !== 64) {
+                    throw new Error(
+                        `InvalidGateBytes: gate_bytes.length=${gate_bytes.length}, attendu 64`
+                    );
+                }
+
+                // Ensure opening_value is in the correct format (hex string with 0x prefix)
+                let openingValueHex = opening_value;
+                if (!openingValueHex.startsWith('0x')) {
+                    openingValueHex = '0x' + openingValueHex;
+                }
+                console.log(`📊 Opening value formaté: ${openingValueHex.slice(0, 20)}...`);
 
                 const userOpHash = await submitCommitment(
-                    opening_value,
+                    openingValueHex,
                     challenge,
                     gate_bytes, // V2 format: 64-byte gate bytes
                     values,
@@ -849,11 +904,44 @@ export default function OngoingContractModal({
                         ct,
                         Number(challenge)
                     );
+                if (gate_bytes.length !== 64) {
+                    throw new Error(
+                        `InvalidGateBytes: gate_bytes.length=${gate_bytes.length}, attendu 64`
+                    );
+                }
 
-                const userOpHash = await submitCommitmentLeft(
-                    opening_value,
+                // Ensure opening_value is in the correct format (hex string with 0x prefix)
+                let openingValueHex = opening_value;
+                if (!openingValueHex.startsWith('0x')) {
+                    openingValueHex = '0x' + openingValueHex;
+                }
+                console.log(`📊 Opening value formaté: ${openingValueHex.slice(0, 20)}...`);
+                console.log(`📊 Opening value length: ${openingValueHex.length} chars (should be 2 + 64*2 = 130 for 32 bytes)`);
+                console.log(`📊 Gate bytes length: ${gate_bytes.length} bytes (should be 64)`);
+                console.log(`📊 Values count: ${values.length}`);
+                console.log(`📊 curr_acc length: ${curr_acc.length} bytes (should be 32)`);
+                console.log(`📊 proof1 layers: ${proof1.length}`);
+                console.log(`📊 proof2 layers: ${proof2.length}`);
+                console.log(`📊 proof_ext layers: ${proof_ext.length}`);
+
+                // Vérifier le commitment du contrat
+                try {
+                    const { getBasicInfo } = await import("@/app/lib/blockchain/optimistic");
+                    const basicInfo = await getBasicInfo(optimistic_smart_contract, true);
+                    if (basicInfo && basicInfo.commitment) {
+                        console.log(`📊 Commitment du contrat: ${basicInfo.commitment}`);
+                        // Note: On ne peut pas vérifier directement si opening_value correspond
+                        // car cela nécessite d'appeler openCommitment sur le contrat
+                    }
+                } catch (error) {
+                    console.warn("⚠️ Impossible de vérifier le commitment:", error);
+                }
+
+                // TEST: Envoi direct (sans UserOperation)
+                const txHash = await submitCommitmentLeftDirect(
+                    openingValueHex,
                     challenge,
-                    gate_bytes, // V2 format: 64-byte gate bytes
+                    gate_bytes,
                     values,
                     curr_acc,
                     proof1,
@@ -862,7 +950,7 @@ export default function OngoingContractModal({
                     publicKey,
                     dispute_smart_contract!
                 );
-                alert(`✅ Preuves envoyées et confirmées!\n\nHash: ${userOpHash.slice(0, 20)}...`);
+                alert(`✅ TEST: Transaction directe envoyée!\n\nHash: ${txHash.slice(0, 20)}...`);
             } else if (actualState == 4) {
                 console.log("📤 Envoi des preuves right (état 4: WaitVendorDataRight)");
                 console.log(`📊 Paramètres: num_blocks=${num_blocks}, num_gates=${num_gates}`);

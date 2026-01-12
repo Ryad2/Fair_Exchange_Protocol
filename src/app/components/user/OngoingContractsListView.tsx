@@ -174,7 +174,7 @@ export default function OngoingContractsListView({
                                 (!c.dispute_smart_contract && c.state == 5n) ||
                                 (c.dispute_smart_contract && c.state == 7n)
                             ) {
-                                return <></>;
+                                return null;
                             }
                             return (
                                 <tr

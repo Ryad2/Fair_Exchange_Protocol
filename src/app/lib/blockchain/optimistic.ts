@@ -166,6 +166,21 @@ export async function deployOptimisticContract(
     await contract.waitForDeployment();
     const contractAddress = await contract.getAddress();
 
+    // Déposer un petit montant sur l'EntryPoint pour sponsoriser les UserOps.
+    // Ce dépôt sera récupéré par le sponsor dans completeTransaction().
+    const entryPointDeposit = parseEther("0.01");
+    if (entryPointDeposit > 0n) {
+        const entryPointContract = new Contract(
+            entryPoint,
+            ["function depositTo(address) payable", "function balanceOf(address) view returns (uint256)"],
+            wallet
+        );
+        const depositTx = await entryPointContract.depositTo(contractAddress, {
+            value: entryPointDeposit,
+        });
+        await depositTx.wait();
+    }
+
     // Générer une session key pour le vendor (même si OptimisticSOX ne l'utilise pas directement)
     // On la retourne pour compatibilité avec le code existant
     const sessionKeyWallet = Wallet.createRandom();
@@ -516,9 +531,8 @@ export async function sendPayment(
     if (!privateKey) {
         throw new Error("Private key not found for payer address");
     }
-
-    // OPTION A: Transaction normale (sans EIP-7702) pour tester les autres méthodes de sponsoring
-    // Le buyer paie directement avec une transaction normale
+    const mode = options?.mode ?? "direct";
+    const amountWei = BigInt(amount);
     
     // Vérifier l'état du contrat, l'adresse du buyer et le montant requis avant d'envoyer
     const currentState = await contract.currState();
@@ -562,12 +576,61 @@ export async function sendPayment(
     }
     
     // Vérifier que le montant est suffisant
-    if (BigInt(amount) < requiredAmount) {
+    if (amountWei < requiredAmount) {
         throw new Error(
             `Le montant fourni (${amount} wei) est insuffisant. ` +
             `Montant requis: ${requiredAmount.toString()} wei (agreedPrice: ${agreedPrice.toString()} + completionTip: ${completionTip.toString()}).`
         );
     }
+
+    if (mode === "eip-7702") {
+        if (!ENTRY_POINT_V8 || !EIP7702_DELEGATE) {
+            throw new Error(
+                "EIP-7702 n'est pas configuré. Déployez le delegate et définissez NEXT_PUBLIC_EIP7702_DELEGATE."
+            );
+        }
+
+        const entryPoint = requireEntryPointV8();
+        const delegate = requireEip7702Delegate();
+
+        const sendPaymentData = contract.interface.encodeFunctionData("sendPayment");
+        const delegateInterface = new Contract(
+            delegate,
+            ["function execute(address target,uint256 value,bytes data)"]
+        ).interface;
+        const executeData = delegateInterface.encodeFunctionData("execute", [
+            contractAddr,
+            amountWei,
+            sendPaymentData,
+        ]);
+
+        const userOpHash = await sendUserOperationV8({
+            sender: payerAddr,
+            callData: executeData,
+            signerPrivateKey: privateKey,
+            entryPoint,
+            delegate,
+        });
+
+        let receipt: UserOperationReceipt | undefined;
+        let transactionHash: string | undefined;
+        if (options?.waitForReceipt) {
+            receipt = await waitForUserOperationReceipt(userOpHash, {
+                timeoutMs: options.receiptTimeoutMs,
+            });
+            transactionHash = receipt?.receipt?.transactionHash;
+        }
+
+        return {
+            mode: "eip-7702",
+            userOpHash,
+            transactionHash,
+            receipt,
+        };
+    }
+
+    // OPTION A: Transaction normale (sans EIP-7702) pour tester les autres méthodes de sponsoring
+    // Le buyer paie directement avec une transaction normale
     
     // Construire un message d'erreur détaillé en cas d'échec
     const diagnosticInfo = {
@@ -707,6 +770,7 @@ export async function sendKey(
     }
 
     // Formater la clé correctement (en format hex string)
+    // Exiger exactement 16 bytes (32 hex chars) pour éviter les tronquages.
     let keyBytes: string;
     
     if (!key || key === "0x") {
@@ -718,6 +782,23 @@ export async function sendKey(
     } else {
         // String hex sans préfixe, ajouter "0x"
         keyBytes = "0x" + key;
+    }
+
+    let keyLength = 0;
+    try {
+        keyLength = getBytes(keyBytes).length;
+    } catch (e: any) {
+        throw new Error(
+            `Invalid key format. Expected hex string (0x + 32 hex chars). ` +
+            `Original error: ${e?.message || e?.toString() || "Unknown error"}`
+        );
+    }
+
+    if (keyLength !== 16) {
+        throw new Error(
+            `Invalid key length: ${keyLength} bytes. Expected 16 bytes ` +
+            `(0x + 32 hex chars).`
+        );
     }
 
     try {
@@ -1291,12 +1372,49 @@ export async function endOptimisticTimeout(
     const state = await contract.currState();
     const privateKey = PK_SK_MAP.get(requesterAddr);
     if (!privateKey) return;
-    const wallet = new Wallet(privateKey, PROVIDER);
 
     if (state == 2n) {
-        await (contract.connect(wallet) as Contract).completeTransaction();
-        return true;
+        // WaitSB: utiliser user operation pour completeTransaction (fees sponsorisées)
+        try {
+            // Récupérer l'EntryPoint depuis le contrat
+            const contractEntryPoint = await contract.entryPoint();
+            
+            // Encoder l'appel completeTransaction
+            const completeTransactionData = contract.interface.encodeFunctionData("completeTransaction");
+            
+            // Encoder execute(self, 0, completeTransactionData) pour UserOperation
+            const executeData = contract.interface.encodeFunctionData("execute", [
+                contractAddr,
+                0,
+                completeTransactionData,
+            ]);
+
+            // Envoyer via UserOperation (fees sponsorisées depuis le deposit EntryPoint)
+            const userOpHash = await sendUserOperation({
+                sender: contractAddr,
+                callData: executeData,
+                signerPrivateKey: privateKey,
+                entryPoint: contractEntryPoint,
+            });
+            
+            // Attendre la confirmation
+            const receipt = await waitForUserOperationReceipt(userOpHash);
+            if (!receipt.success) {
+                throw new Error(`User operation failed: ${userOpHash}`);
+            }
+            
+            return true;
+        } catch (error: any) {
+            // Si la user operation échoue, fallback sur transaction normale
+            // (pour compatibilité avec les anciens contrats ou si pas de deposit EntryPoint)
+            console.warn("User operation failed, falling back to direct transaction:", error.message);
+            const wallet = new Wallet(privateKey, PROVIDER);
+            await (contract.connect(wallet) as Contract).completeTransaction();
+            return true;
+        }
     } else if (state != 4n && state != 5n) {
+        // Autres états: utiliser transaction normale pour cancelTransaction
+        const wallet = new Wallet(privateKey, PROVIDER);
         await (contract.connect(wallet) as Contract).cancelTransaction();
         return false;
     } else {

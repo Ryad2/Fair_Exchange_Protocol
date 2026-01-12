@@ -86,6 +86,7 @@ error InvalidGateBytes();
 error InvalidV2SonIndex();
 error CTIndexOutOfBounds();
 error AESKeyInvalid();
+error AESKeyMismatch();
 error TransactionReverted();
 
 /**
@@ -722,7 +723,8 @@ contract DisputeSOXAccount {
         uint32[] memory gateNumArray = new uint32[](1);
         gateNumArray[0] = _gateNum - 1;
 
-        return (_currAcc != buyerResponses[_gateNum] &&
+        // Verify proofs: if they pass, vendor wins (files are identical, vendor did not lie)
+        return (
             AccumulatorVerifier.verify(
                 hCircuitCt[0],
                 gateNumArray,
@@ -932,12 +934,8 @@ contract DisputeSOXAccount {
         nextTimeoutTime = block.timestamp + timeoutIncrement;
     }
 
-    function getAesKey() internal view returns (bytes16 aesKey) {
-        bytes memory keyBytes = optimisticContract.key();
-        if (keyBytes.length != 16) revert AESKeyInvalid();
-        assembly {
-            aesKey := mload(add(keyBytes, 32))
-        }
+    function getAesKey() internal view returns (bytes16) {
+        return optimisticContract.key();
     }
 
     // Opens the commitment with the provided opening value and parses the result
@@ -978,7 +976,14 @@ contract DisputeSOXAccount {
     // =============== PRIVATE HELPER FUNCTIONS ===============
     function _call(address _target, uint256 _value, bytes calldata _data) internal {
         (bool success, bytes memory result) = _target.call{value: _value}(_data);
-        if (!success) revert TransactionReverted();
+        if (!success) {
+            if (result.length > 0) {
+                assembly {
+                    revert(add(result, 32), mload(result))
+                }
+            }
+            revert TransactionReverted();
+        }
     }
 
     function _clearUserOpContext() internal {

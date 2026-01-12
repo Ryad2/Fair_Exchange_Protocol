@@ -159,6 +159,19 @@ library AccumulatorVerifier {
         bytes32 prevRoot,
         bytes32[][] calldata proof
     ) internal pure returns (bool) {
+        // Check if proof is empty
+        bool isEmpty = true;
+        for (uint32 i = 0; i < proof.length; i++) {
+            if (proof[i].length > 0) {
+                isEmpty = false;
+                break;
+            }
+        }
+        // If proof is empty, return true only if prevRoot is zero (Step 8b case)
+        if (isEmpty) {
+            return prevRoot == bytes32(0);
+        }
+        
         bool firstFound = false;
         bytes32 computedRoot;
         for (uint32 i = 0; i < proof.length; i++) {
@@ -204,6 +217,12 @@ library AccumulatorVerifier {
 
         bytes32[] memory addedValKeccakArr = new bytes32[](1);
         addedValKeccakArr[0] = addedValKeccak;
+
+        // For Step 8b (i=0, prevRoot=0), there is no previous accumulator,
+        // so we only verify the current root, not the previous one
+        if (i == 0 && prevRoot == bytes32(0)) {
+            return verify(currRoot, iArr, addedValKeccakArr, proof);
+        }
 
         return
             verify(currRoot, iArr, addedValKeccakArr, proof) &&
