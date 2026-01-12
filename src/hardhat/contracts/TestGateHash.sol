@@ -3,16 +3,9 @@ pragma solidity ^0.8.0;
 
 import {SHA256Evaluator} from "../contracts/SHA256Evaluator.sol";
 
-/**
- * @title TestGateHash
- * @notice Test contract to verify gate hashing matches Rust implementation
- */
 contract TestGateHash {
     /**
-     * @notice Hashes a V2 gate using SHA256 compression (same as Rust hash_block64)
-     * @dev This matches the hashing used in acc_circuit_v2 in Rust
-     * @param gateBytes The 64-byte encoded gate
-     * @return The SHA256 hash of the gate
+     * Hashes a V2 gate using SHA256 compression.
      */
     function sha256GateV2(bytes calldata gateBytes) public pure returns (bytes32) {
         require(gateBytes.length == 64, "Gate must be exactly 64 bytes");

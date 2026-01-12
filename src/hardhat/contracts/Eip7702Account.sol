@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.28;
 
-/**
- * @dev Packed user operation (EntryPoint v0.8).
- */
 struct PackedUserOperation {
     address sender;
     uint256 nonce;
@@ -17,16 +14,12 @@ struct PackedUserOperation {
 }
 
 /**
- * @dev Minimal EntryPoint surface for v0.8.
  */
 interface IEntryPointV8 {
     function depositTo(address account) external payable;
     function getNonce(address sender, uint192 key) external view returns (uint256);
 }
 
-/**
- * @dev Lightweight ECDSA helper (adapted from OpenZeppelin).
- */
 library ECDSA {
     function toEthSignedMessageHash(bytes32 hash) internal pure returns (bytes32) {
         return keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", hash));
@@ -58,11 +51,6 @@ library ECDSA {
     }
 }
 
-/**
- * @title Eip7702Account
- * @notice Minimal EIP-7702 delegate account used with EntryPoint v0.8.
- * The signer is the EOA itself (address(this) when delegated).
- */
 contract Eip7702Account {
     using ECDSA for bytes32;
 

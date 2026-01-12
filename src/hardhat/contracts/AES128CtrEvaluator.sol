@@ -1,31 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-/**
- * @title AES128CtrEvaluator
- * @notice A library for AES-128 encryption and decryption using Counter (CTR) mode.
- * @dev This library provides functions to perform AES-128 encryption and decryption in CTR mode.
- */
 library AES128CtrEvaluator {
-    /**
-     * @dev The number of columns (32-bit words) comprising the State.
-     */
     uint8 constant Nb = 4;
-
-    /**
-     * @dev The number of 32-bit words comprising the Cipher Key.
-     */
     uint8 constant Nk = 4;
-
-    /**
-     * @dev The number of rounds
-     */
     uint8 constant Nr = 10;
 
     /**
-     * @notice Gets the substitution box (S-box) used in AES.
-     * @dev The S-box is a lookup table used in the SubBytes step.
-     * @return The S-box as an array of bytes.
+     * Gets the substitution box (S-box) used in AES.
      */
     function getSBox() internal pure returns (uint8[256] memory) {
         // prettier-ignore

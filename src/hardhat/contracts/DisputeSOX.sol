@@ -7,16 +7,7 @@ import {CommitmentOpener} from "./CommitmentSOX.sol";
 import {OptimisticState, IOptimisticSOX} from "./OptimisticSOXAccount.sol";
 import {DisputeSOXHelpers} from "./DisputeSOXHelpers.sol";
 
-/**
- * @title DisputeSOX
- * @dev This contract handles the dispute resolution process between a buyer
- *      and a vendor. It assumes that all sponsors have deposited the
- *      requred funds
- */
 contract DisputeSOX {
-    /**
-     * @dev Optimistic smart contract corresponding to this exchange
-     */
     IOptimisticSOX public optimisticContract;
 
     /**

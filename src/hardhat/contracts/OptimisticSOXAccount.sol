@@ -3,9 +3,6 @@ pragma solidity ^0.8.0;
 
 import {DisputeDeployer} from "./DisputeDeployer.sol";
 
-/**
- * @dev Enum representing the different states of the optimistic process
- */
 enum OptimisticState {
     WaitPayment,
     WaitKey,
@@ -15,9 +12,6 @@ enum OptimisticState {
     End
 }
 
-/**
- * @dev Interface for OptimisticSOX (used by DisputeSOXAccount)
- */
 interface IOptimisticSOX {
     function buyer() external view returns (address);
     function vendor() external view returns (address);
@@ -31,9 +25,6 @@ interface IOptimisticSOX {
     function endDispute() external;
 }
 
-/**
- * @dev Packed user operation (EntryPoint v0.7/v0.8).
- */
 struct PackedUserOperation {
     address sender;
     uint256 nonce;
@@ -46,18 +37,12 @@ struct PackedUserOperation {
     bytes signature;
 }
 
-/**
- * @dev Minimal EntryPoint surface needed by this contract.
- */
 interface IEntryPoint {
     function depositTo(address account) external payable;
     function withdrawTo(address payable withdrawAddress, uint256 amount) external;
     function balanceOf(address account) external view returns (uint256);
 }
 
-/**
- * @dev Lightweight ECDSA helper (adapted from OpenZeppelin) to validate the vendor signature.
- */
 library ECDSA {
     function toEthSignedMessageHash(bytes32 hash) internal pure returns (bytes32) {
         return keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", hash));
@@ -89,11 +74,6 @@ library ECDSA {
     }
 }
 
-/**
- * @title OptimisticSOXAccount
- * @notice ERC-4337 compatible smart account that handles the optimistic phase.
- * This contract combines the optimistic phase logic with ERC-4337 account abstraction support.
- */
 contract OptimisticSOXAccount is IOptimisticSOX {
     using ECDSA for bytes32;
 

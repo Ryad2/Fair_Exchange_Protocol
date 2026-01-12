@@ -3,14 +3,9 @@ pragma solidity ^0.8.0;
 
 import {EvaluatorSOX_V2} from "../EvaluatorSOX_V2.sol";
 
-/**
- * @title TestEvaluatorSOX_V2
- * @notice Test contract to verify EvaluatorSOX_V2 functions
- */
 contract TestEvaluatorSOX_V2 {
     /**
-     * @notice Evaluates a V2 gate from son values
-     * @param gateBytes The 64-byte encoded gate
+     * Evaluates a V2 gate from son values.
      * @param sonValues Array of evaluated son values
      * @param aesKey The AES-128 key (16 bytes)
      * @return The result of the gate evaluation
@@ -24,11 +19,7 @@ contract TestEvaluatorSOX_V2 {
     }
 
     /**
-     * @notice Decodes a gate from 64 bytes
-     * @param gateBytes The 64-byte encoded gate
-     * @return opcode The gate's opcode
-     * @return sons Array of son indices
-     * @return params The gate's parameters
+     * Decodes a gate from 64 bytes.
      */
     function decodeGate(bytes calldata gateBytes)
         external
@@ -39,9 +30,7 @@ contract TestEvaluatorSOX_V2 {
     }
 
     /**
-     * @notice Decodes a son index from 6 bytes
-     * @param data The 6-byte array containing the encoded son index
-     * @return The decoded son index as int64
+     * Decodes a son index from 6 bytes.
      */
     function decodeSon(bytes6 data) external pure returns (int64) {
         return EvaluatorSOX_V2.decodeSon(data);

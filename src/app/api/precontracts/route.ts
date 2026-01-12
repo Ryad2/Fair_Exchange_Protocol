@@ -4,6 +4,7 @@ import fs, { readFileSync } from "node:fs";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { Readable } from "node:stream";
 import { UPLOADS_PATH, WASM_PATH } from "../files/[id]/route";
 
 // Imports WASM conditionnels pour éviter les erreurs si le module n'est pas disponible
@@ -31,6 +32,82 @@ const PRECONTRACT_CLI_PATH = path.join(
     "release",
     "precontract_cli"
 );
+
+async function parseMultipartRequest(
+    req: Request,
+    contentType: string
+): Promise<{ fields: Record<string, string>; tempFilePath: string }> {
+    const Busboy = require("busboy");
+    const body = req.body;
+    if (!body) {
+        throw new Error("Request body is empty");
+    }
+
+    const fields: Record<string, string> = {};
+    let tempFilePath: string | null = null;
+    let fileWritePromise: Promise<void> | null = null;
+    let fileCount = 0;
+
+    const tempDir = path.join(process.cwd(), "tmp");
+    if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
+    }
+
+    const bb = Busboy({
+        headers: { "content-type": contentType },
+    });
+
+    bb.on("field", (name: string, value: string) => {
+        fields[name] = value;
+    });
+
+    bb.on(
+        "file",
+        (
+            _name: string,
+            file: NodeJS.ReadableStream,
+            infoOrFilename: { filename?: string } | string
+        ) => {
+            fileCount += 1;
+            if (fileCount > 1) {
+                file.resume();
+                return;
+            }
+            const filename =
+                typeof infoOrFilename === "string"
+                    ? infoOrFilename
+                    : infoOrFilename?.filename || "upload.bin";
+            const safeName = path.basename(filename || "upload.bin");
+            tempFilePath = path.join(tempDir, `temp_${Date.now()}_${safeName}`);
+
+            const writeStream = fs.createWriteStream(tempFilePath);
+            file.pipe(writeStream);
+
+            fileWritePromise = new Promise((resolve, reject) => {
+                writeStream.on("finish", resolve);
+                writeStream.on("error", reject);
+                file.on("error", reject);
+            });
+        }
+    );
+
+    const parsePromise = new Promise<void>((resolve, reject) => {
+        bb.on("finish", resolve);
+        bb.on("error", reject);
+    });
+
+    Readable.fromWeb(body as any).pipe(bb);
+    await parsePromise;
+    if (fileWritePromise) {
+        await fileWritePromise;
+    }
+
+    if (!tempFilePath) {
+        throw new Error("Fichier manquant");
+    }
+
+    return { fields, tempFilePath };
+}
 
 export async function GET(req: NextRequest) {
     try {
@@ -79,55 +156,26 @@ export async function PUT(req: Request) {
         let preOut: any = null;
 
         if (contentType.includes("multipart/form-data")) {
-            // Mode web: FormData avec fichier
-            const formData = await req.formData();
-            
-            // Extraire les champs du formulaire
-            data = {
-                pk_buyer: formData.get("pk_buyer") as string,
-                pk_vendor: formData.get("pk_vendor") as string,
-                price: formData.get("price") as string,
-                tip_completion: formData.get("tip_completion") as string,
-                tip_dispute: formData.get("tip_dispute") as string,
-                protocol_version: formData.get("protocol_version") as string,
-                timeout_delay: formData.get("timeout_delay") as string,
-                algorithm_suite: formData.get("algorithm_suite") as string,
-            };
-
-            // Sauvegarder le fichier temporairement
-            const file = formData.get("file") as File;
-            if (!file) {
-                return NextResponse.json(
-                    { error: "Fichier manquant" },
-                    { status: 400 }
-                );
-            }
-
-            // Créer un répertoire temporaire si nécessaire
-            const tempDir = path.join(process.cwd(), "tmp");
-            if (!fs.existsSync(tempDir)) {
-                fs.mkdirSync(tempDir, { recursive: true });
-            }
-
-            // Sauvegarder le fichier temporairement
-            const tempFilePath = path.join(tempDir, `temp_${Date.now()}_${file.name}`);
-            const arrayBuffer = await file.arrayBuffer();
-            fs.writeFileSync(tempFilePath, Buffer.from(arrayBuffer));
-
-            // Appeler le binaire Rust precontract_cli
+            // Mode web: streaming multipart pour éviter de charger le fichier en RAM
+            let tempFilePath: string | null = null;
             try {
+                const parsed = await parseMultipartRequest(req, contentType);
+                tempFilePath = parsed.tempFilePath;
+                data = {
+                    pk_buyer: parsed.fields.pk_buyer,
+                    pk_vendor: parsed.fields.pk_vendor,
+                    price: parsed.fields.price,
+                    tip_completion: parsed.fields.tip_completion,
+                    tip_dispute: parsed.fields.tip_dispute,
+                    protocol_version: parsed.fields.protocol_version,
+                    timeout_delay: parsed.fields.timeout_delay,
+                    algorithm_suite: parsed.fields.algorithm_suite,
+                };
+
                 const { stdout } = await execFileAsync(PRECONTRACT_CLI_PATH, [tempFilePath]);
                 preOut = JSON.parse(stdout.toString());
-                
-                // Ajouter la clé en hex si elle n'est pas déjà présente
-                if (preOut && !preOut.key_hex) {
-                    // La clé devrait être générée par le binaire, mais si elle n'est pas dans la sortie,
-                    // on doit la récupérer d'une autre manière
-                    // Pour l'instant, on suppose que le binaire retourne key_hex
-                }
             } catch (error: any) {
-                // Nettoyer le fichier temporaire en cas d'erreur
-                if (fs.existsSync(tempFilePath)) {
+                if (tempFilePath && fs.existsSync(tempFilePath)) {
                     fs.unlinkSync(tempFilePath);
                 }
                 console.error("Erreur lors de l'exécution de precontract_cli:", error);
@@ -135,16 +183,15 @@ export async function PUT(req: Request) {
                     { error: `Erreur lors du calcul du precontract: ${error.message || error.toString()}` },
                     { status: 500 }
                 );
+            } finally {
+                if (tempFilePath && fs.existsSync(tempFilePath)) {
+                    fs.unlinkSync(tempFilePath);
+                }
             }
 
             // Déplacer le fichier chiffré vers le répertoire d'uploads
-            if (preOut.ciphertext_path && fs.existsSync(preOut.ciphertext_path)) {
+            if (preOut?.ciphertext_path && fs.existsSync(preOut.ciphertext_path)) {
                 filePath = preOut.ciphertext_path;
-            }
-
-            // Nettoyer le fichier temporaire original
-            if (fs.existsSync(tempFilePath)) {
-                fs.unlinkSync(tempFilePath);
             }
         } else {
             // Mode Electron: JSON avec preOut
@@ -207,7 +254,7 @@ export async function PUT(req: Request) {
                 timeout_delay: data.timeout_delay || 3600,
                 algorithm_suite: data.algorithm_suite || "AES-128-CTR",
                 file: preOut.file || preOut.ciphertext || "",
-                file_path: filePath || preOut.ciphertext_path || ""
+                file_path: filePath || ""
             };
         } else {
             // Format standard (ne devrait plus être utilisé)

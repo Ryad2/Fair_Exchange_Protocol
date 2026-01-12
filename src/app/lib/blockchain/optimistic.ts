@@ -28,10 +28,6 @@ import {
     parseEther,
 } from "ethers";
 
-/**
- * Helper function to return the OptimisticSOXAccount Contract instance.
- * Rejects legacy OptimisticSOX contracts.
- */
 async function getOptimisticContract(contractAddr: string): Promise<Contract> {
     if (!isAddress(contractAddr)) {
         throw new Error("Invalid contract address");
@@ -47,7 +43,7 @@ async function getOptimisticContract(contractAddr: string): Promise<Contract> {
 }
 
 /**
- * Get contract type information (account-only).
+ * Gets the contract type and entry point address.
  */
 export async function getContractType(contractAddr: string): Promise<{ type: "OptimisticSOXAccount"; entryPoint: string } | null> {
     if (!isAddress(contractAddr)) return null;
@@ -61,6 +57,10 @@ export async function getContractType(contractAddr: string): Promise<{ type: "Op
     }
 }
 
+/**
+ * Deploys a new OptimisticSOXAccount contract with the specified parameters.
+ * Returns the contract address and session key information.
+ */
 export async function deployOptimisticContract(
     pkBuyer: string,
     pkVendor: string,
@@ -77,10 +77,6 @@ export async function deployOptimisticContract(
     sessionKeyPrivateKey: string;
     sessionKeyAddress: string;
 }> {
-    // Utiliser OptimisticSOXAccount (avec support ERC-4337)
-    // Le sponsoring fonctionne de la même manière : le sponsor envoie de l'ETH lors du déploiement
-    // OptimisticSOXAccount permet au bundler de communiquer via l'EntryPoint
-    // Le vendor peut envoyer sendKey() via UserOperation (fees sponsorisées)
     const entryPoint = requireEntryPoint();
     
     // Déployer les libraries nécessaires et obtenir leurs adresses
@@ -130,19 +126,7 @@ export async function deployOptimisticContract(
     // Le sponsor envoie de l'ETH (msg.value) qui sera stocké dans sponsorDeposit
     // vendorSigner peut être le même que vendor si non spécifié
     
-    // Vérifier le nonce actuel (incluant les transactions en attente)
-    // Cela évite l'erreur "nonce has already been used"
     const currentNonce = await PROVIDER.getTransactionCount(sponsorAddr, "pending");
-    console.log(`📝 Nonce actuel du sponsor: ${currentNonce}`);
-    
-    // Optionnel : attendre que les transactions en attente soient confirmées
-    // pour éviter les problèmes de nonce (décommentez si nécessaire)
-    // const confirmedNonce = await PROVIDER.getTransactionCount(sponsorAddr, "latest");
-    // if (currentNonce > confirmedNonce) {
-    //     console.log(`⏳ ${currentNonce - confirmedNonce} transaction(s) en attente, attente de confirmation...`);
-    //     // Attendre un peu que les transactions soient confirmées
-    //     await new Promise(resolve => setTimeout(resolve, 5000));
-    // }
     
     const contract = await factory
         .connect(wallet)
@@ -194,6 +178,9 @@ export async function deployOptimisticContract(
     };
 }
 
+/**
+ * Gets the current state of the optimistic contract.
+ */
 export async function getOptimisticState(contractAddr: string) {
     if (!isAddress(contractAddr)) return;
 
@@ -205,6 +192,9 @@ export async function getOptimisticState(contractAddr: string) {
     }
 }
 
+/**
+ * Gets the next timeout timestamp for the optimistic contract.
+ */
 export async function getNextOptimisticTimeout(contractAddr: string) {
     if (!isAddress(contractAddr)) return;
 
@@ -216,6 +206,9 @@ export async function getNextOptimisticTimeout(contractAddr: string) {
     }
 }
 
+/**
+ * Gets basic information about the contract, optionally including dispute information.
+ */
 export async function getBasicInfo(
     contractAddr: string,
     withDispute?: boolean
@@ -272,12 +265,14 @@ export async function getBasicInfo(
     };
 }
 
+/**
+ * Gets detailed information about the contract including all addresses, deposits, and parameters.
+ */
 export async function getDetails(contractAddr: string) {
     if (!isAddress(contractAddr)) return;
     
     const contract = await getOptimisticContract(contractAddr);
 
-    console.log(await contract.currState());
     return {
         state: await contract.currState(),
         key: await contract.key(),
@@ -432,12 +427,9 @@ async function sendEip7702Authorization(
     let txData = buildTxData(nonce);
     
     // Vérifier à nouveau le nonce juste avant de signer pour éviter "nonce too low"
-    // Entre la récupération initiale et maintenant, d'autres transactions ont pu être confirmées
     const latestNonce = await getCurrentNonce();
     if (latestNonce !== nonce) {
-        console.log(`⚠️ Nonce a changé: ${nonce} -> ${latestNonce}, reconstruction de la transaction...`);
         nonce = latestNonce;
-        // Reconstruire txData avec le nouveau nonce
         txData = buildTxData(nonce);
     }
     
@@ -479,7 +471,6 @@ async function sendEip7702Authorization(
             }
         } else {
             try {
-                console.log("📤 Envoi de l'autorisation EIP-7702 au bundler...");
                 const response = await fetch(BUNDLER_URL, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -502,15 +493,14 @@ async function sendEip7702Authorization(
                     );
                 }
 
-                console.log("✅ Autorisation EIP-7702 envoyée au bundler");
                 return payload.result as string;
             } catch (error: any) {
                 if (transport === "bundler") {
                     throw error;
                 }
                 console.warn(
-                    "⚠️ Erreur lors de l'envoi au bundler, fallback RPC:",
-                    error.message
+                    "Bundler sendRawTransaction failed, falling back to RPC:",
+                    error?.message || error
                 );
             }
         }
@@ -519,6 +509,9 @@ async function sendEip7702Authorization(
     return await PROVIDER.send("eth_sendRawTransaction", [signedTx]);
 }
 
+/**
+ * Sends payment from the buyer to the contract. Supports both direct transactions and ERC-4337 user operations.
+ */
 export async function sendPayment(
     payerAddr: string,
     contractAddr: string,
@@ -544,20 +537,6 @@ export async function sendPayment(
     const wallet = new Wallet(privateKey, PROVIDER);
     const walletAddress = await wallet.getAddress();
     
-    console.log("🔍 Vérification avant paiement:", {
-        currentState: Number(currentState),
-        expectedState: 0, // WaitPayment
-        buyerAddress: buyer,
-        payerAddress: payerAddr,
-        walletAddress: walletAddress,
-        isBuyer: buyer.toLowerCase() === payerAddr.toLowerCase(),
-        amountProvided: amount,
-        requiredAmount: requiredAmount.toString(),
-        agreedPrice: agreedPrice.toString(),
-        completionTip: completionTip.toString(),
-    });
-    
-    // Vérifier que le contrat est dans l'état WaitPayment
     if (currentState !== 0n) {
         const stateNames = ["WaitPayment", "WaitKey", "WaitSB", "WaitSV", "InDispute", "End"];
         const stateName = stateNames[Number(currentState)] || `Unknown (${currentState})`;
@@ -644,8 +623,6 @@ export async function sendPayment(
         completionTip: completionTip.toString(),
     };
     
-    console.log("💳 Envoi du paiement via transaction normale (direct)...");
-    
     try {
         const tx = await (contract.connect(wallet) as Contract).sendPayment({
             value: amount,
@@ -653,7 +630,6 @@ export async function sendPayment(
         
         if (options?.waitForReceipt) {
             await tx.wait();
-            console.log("✅ Paiement confirmé (transaction directe)");
         }
         
         return { mode: "direct", transactionHash: tx.hash } satisfies PaymentResult;
@@ -694,6 +670,9 @@ export async function sendPayment(
     }
 }
 
+/**
+ * Sends the decryption key from the vendor to the contract.
+ */
 export async function sendKey(
     vendorAddr: string,
     contractAddr: string,
@@ -878,11 +857,13 @@ async function syncSponsorToDatabase(
             }
         }
     } catch (dbError) {
-        // Ne pas faire échouer la transaction si la synchronisation DB échoue
-        console.warn('Failed to sync sponsor to database:', dbError);
+        // Database sync failure should not block the transaction
     }
 }
 
+/**
+ * Sends the buyer dispute sponsor fee to the contract.
+ */
 export async function sendSbFee(sbAddr: string, contractAddr: string) {
     const contract = await getOptimisticContract(contractAddr);
     
@@ -947,11 +928,7 @@ export async function sendSbFee(sbAddr: string, contractAddr: string) {
         // Attendre la confirmation de la transaction
         await tx.wait();
         
-        // Vérifier que l'adresse enregistrée dans le contrat correspond bien au wallet qui a envoyé
         const registeredSponsor = await contract.buyerDisputeSponsor();
-        if (registeredSponsor.toLowerCase() !== walletAddress.toLowerCase()) {
-            console.warn(`⚠️ Adresse sponsor enregistrée (${registeredSponsor}) ne correspond pas au wallet (${walletAddress})`);
-        }
         
         // Synchroniser avec la base de données en utilisant l'adresse du wallet qui a réellement envoyé
         await syncSponsorToDatabase(contractAddr, walletAddress);
@@ -968,16 +945,7 @@ export async function sendSbFee(sbAddr: string, contractAddr: string) {
 }
 
 /**
- * Trigger a dispute as the buyer using a sponsored user operation.
- * This allows the buyer to call sendBuyerDisputeSponsorFee() via ERC-4337
- * with gas fees paid by a paymaster.
- * 
- * @param buyerAddr - The buyer's account address (ERC-4337 account)
- * @param contractAddr - The OptimisticSOXAccount contract address
- * @param paymasterAddr - Optional paymaster address to sponsor the transaction
- * @param paymasterVerificationGasLimit - Optional verification gas limit for paymaster
- * @param paymasterPostOpGasLimit - Optional post-op gas limit for paymaster
- * @returns User operation hash
+ * Triggers a dispute as the buyer using a sponsored user operation.
  */
 export async function triggerDisputeAsBuyerWithUserOp(
     buyerAddr: string,
@@ -1099,6 +1067,9 @@ export async function triggerDisputeAsBuyerWithUserOp(
     }
 }
 
+/**
+ * Sends the vendor dispute sponsor fee to the contract and deploys the dispute contract.
+ */
 export async function sendSvFee(svAddr: string, contractAddr: string) {
     const contract = await getOptimisticContract(contractAddr);
 
@@ -1154,13 +1125,6 @@ export async function sendSvFee(svAddr: string, contractAddr: string) {
         throw new Error(diagnosticInfo);
     }
     
-    console.log(`✅ Vérifications préliminaires:`);
-    console.log(`   - État: ${currentStateName} (${currentState}) ✅`);
-    console.log(`   - Buyer dispute sponsor: ${buyerDisputeSponsor} ✅`);
-    console.log(`   - Vendor dispute sponsor (avant envoi): ${vendorDisputeSponsor || "Non défini"} ✅`);
-    console.log("");
-
-    // Vérifier si un sponsor vendor n'est pas déjà défini
     // (on a déjà récupéré vendorDisputeSponsor plus haut, mais on le récupère à nouveau pour être sûr)
     if (!vendorDisputeSponsor) {
         vendorDisputeSponsor = await contract.vendorDisputeSponsor();
@@ -1230,9 +1194,6 @@ export async function sendSvFee(svAddr: string, contractAddr: string) {
     const contractBalance = await PROVIDER.getBalance(contractAddr).catch(() => 0n);
     const totalBalanceAfter = contractBalance + requiredAmount;
     
-    // Vérifier que le contrat aura assez de balance après l'envoi pour déployer DisputeSOXAccount
-    // DisputeDeployer utilise address(this).balance pour déployer DisputeSOXAccount
-    // Le constructeur de DisputeSOXAccount vérifie que msg.value >= agreedPrice
     if (totalBalanceAfter < agreedPrice) {
         throw new Error(
             `Balance insuffisante pour déployer DisputeSOXAccount. ` +
@@ -1242,50 +1203,12 @@ export async function sendSvFee(svAddr: string, contractAddr: string) {
             `et le constructeur vérifie que msg.value >= agreedPrice.`
         );
     }
-    
-    console.log("📋 Résumé de la transaction:");
-    console.log(`   - Montant à envoyer: ${requiredAmount.toString()} wei`);
-    console.log(`     • DISPUTE_FEES: ${DISPUTE_FEES} wei`);
-    console.log(`     • disputeTip: ${disputeTip.toString()} wei`);
-    console.log(`     • agreedPrice: ${agreedPrice.toString()} wei`);
-    console.log(`   - Balance actuelle du contrat: ${contractBalance.toString()} wei`);
-    console.log(`   - Balance après envoi: ${totalBalanceAfter.toString()} wei`);
-    console.log(`   - Balance requise pour DisputeSOXAccount: >= ${agreedPrice.toString()} wei`);
-    console.log("");
-    
-    // Explication de ce qui va se passer:
-    console.log("📝 Ce qui va se passer:");
-    console.log(`   1. Vous envoyez ${requiredAmount.toString()} wei au contrat OptimisticSOXAccount`);
-    console.log(`   2. Le contrat reçoit ces fonds (balance devient ${totalBalanceAfter.toString()} wei)`);
-    console.log(`   3. Le contrat appelle DisputeDeployer.deployDispute()`);
-    console.log(`   4. DisputeDeployer déploie DisputeSOXAccount avec {value: address(this).balance}`);
-    console.log(`      → Cela envoie ${totalBalanceAfter.toString()} wei au constructeur de DisputeSOXAccount`);
-    console.log(`   5. Le constructeur vérifie que msg.value (${totalBalanceAfter.toString()} wei) >= agreedPrice (${agreedPrice.toString()} wei)`);
-    console.log(`      → ${totalBalanceAfter >= agreedPrice ? "✅ OK" : "❌ ERREUR"}`);
-    console.log("");
-    
-    // Essayer de simuler d'abord, mais ne pas bloquer si ça échoue
-    const preflightError = await simulateSend(requiredAmount);
-    if (preflightError) {
-        console.warn("⚠️ La simulation a échoué:", preflightError);
-        console.warn("   Mais cela peut être dû à une limitation de staticCall avec les bibliothèques.");
-        console.warn(`   Si la balance (${totalBalanceAfter.toString()} wei) >= agreedPrice (${agreedPrice.toString()} wei), `);
-        console.warn("   la transaction réelle devrait réussir.");
-        console.warn("");
-    } else {
-        console.log("✅ Simulation réussie!");
-        console.log("");
-    }
 
     try {
         await contractWithSigner.sendVendorDisputeSponsorFee({
             value: requiredAmount,
         });
         const disputeContractAddr = await contract.disputeContract();
-        const registeredSponsor = await contract.vendorDisputeSponsor();
-        if (registeredSponsor.toLowerCase() !== walletAddress.toLowerCase()) {
-            console.warn(`⚠️ Adresse sponsor enregistrée (${registeredSponsor}) ne correspond pas au wallet (${walletAddress})`);
-        }
         await syncSponsorToDatabase(contractAddr, walletAddress, disputeContractAddr);
         return disputeContractAddr;
     } catch (e: any) {
@@ -1350,6 +1273,9 @@ export async function sendSvFee(svAddr: string, contractAddr: string) {
     }
 }
 
+/**
+ * Starts a dispute on the contract.
+ */
 export async function startDispute(sponsorAddr: string, contractAddr: string) {
     const contract = await getOptimisticContract(contractAddr);
     
@@ -1362,6 +1288,9 @@ export async function startDispute(sponsorAddr: string, contractAddr: string) {
     return await contract.disputeContract();
 }
 
+/**
+ * Ends the optimistic timeout, allowing the requester to claim timeout.
+ */
 export async function endOptimisticTimeout(
     contractAddr: string,
     requesterAddr: string

@@ -5,19 +5,7 @@ import {AES128CtrEvaluator} from "./AES128CtrEvaluator.sol";
 import {SHA256Evaluator} from "./SHA256Evaluator.sol";
 
 /**
- * @title EvaluatorSOX_V2
- * @notice A library for evaluating V2 circuit gates (64-byte format).
- * @dev This library provides functions to decode and evaluate gates in a V2 circuit.
- * 
- * Gate format (64 bytes):
- * - opcode (1 byte)
- * - sons (arity * 6 bytes, each son is a signed i64 encoded in 6 bytes big-endian)
- * - params (variable length, opcode-specific)
- * - zero padding to 64 bytes
- * 
- * Opcodes:
- * - 0x01: AES-CTR (decrypt block)
- * - 0x02: SHA2 (SHA256 compression)
+ * Evaluates V2 circuit gates (64-byte format).
  * - 0x03: CONST (constant value)
  * - 0x04: XOR (bitwise XOR)
  * - 0x05: COMP (comparison, returns 1 if equal, 0 otherwise)

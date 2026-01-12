@@ -1,28 +1,14 @@
 // SPDX-License-Identifier: GPL 3.0
 pragma solidity ^0.8.0;
 
-/**
- * @title AccumulatorVerifier
- * @notice A library for verifying accumulator proofs.
- * @dev This library provides functions to verify the correctness of accumulator proofs.
- * It includes helper functions to sort arrays, compute hashes, and verify proofs.
- */
 library AccumulatorVerifier {
-    /**
-     * @dev Struct representing a key-value pair.
-     * @param key The key as a uint32.
-     * @param value The value as a bytes32.
-     */
     struct Pair {
         uint32 key;
         bytes32 value;
     }
 
     /**
-     * @notice Gets the neighbor index of a given index.
-     * @dev If the index is even, returns the next index; if the index is odd, returns the previous index.
-     * @param index The index to find the neighbor for.
-     * @return The neighbor index.
+     * Gets the neighbor index of a given index.
      */
     function getNeighbor(uint32 index) internal pure returns (uint32) {
         if (index % 2 == 0) return index + 1;
@@ -30,24 +16,14 @@ library AccumulatorVerifier {
     }
 
     /**
-     * @notice Computes the hash of two bytes32 values.
-     * @dev Uses keccak256 to hash the concatenation of the two values.
-     * @param left The first bytes32 value.
-     * @param right The second bytes32 value.
-     * @return The hash of the concatenated values.
+     * Computes the hash of two bytes32 values.
      */
     function hash(bytes32 left, bytes32 right) internal pure returns (bytes32) {
         return keccak256(bytes.concat(left, right));
     }
 
     /**
-     * @notice Verifies an accumulator proof.
-     * @dev This function checks if the provided values and proof correctly verify against the given root.
-     * @param root The root of the accumulator.
-     * @param indices The indices of the values to verify.
-     * @param valuesKeccak The keccak hashes of the values to verify.
-     * @param proof The proof to verify.
-     * @return True if the proof is valid, false otherwise.
+     * Verifies an accumulator proof.
      */
     function verify(
         bytes32 root,
@@ -149,11 +125,7 @@ library AccumulatorVerifier {
     }
 
     /**
-     * @notice Verifies the previous root of an accumulator.
-     * @dev This function checks if the provided proof correctly verifies against the previous root.
-     * @param prevRoot The previous root of the accumulator.
-     * @param proof The proof to verify.
-     * @return True if the proof is valid, false otherwise.
+     * Verifies the previous root of an accumulator.
      */
     function verifyPrevious(
         bytes32 prevRoot,
@@ -196,14 +168,7 @@ library AccumulatorVerifier {
     }
 
     /**
-     * @notice Verifies an extension proof.
-     * @dev This function checks if the provided value and proof correctly verify against the current and previous roots.
-     * @param i The index of the added value.
-     * @param prevRoot The previous root of the accumulator.
-     * @param currRoot The current root of the accumulator.
-     * @param addedValKeccak The keccak hash of the added value.
-     * @param proof The proof to verify.
-     * @return True if the proof is valid, false otherwise.
+     * Verifies an extension proof.
      */
     function verifyExt(
         uint32 i,
@@ -235,12 +200,7 @@ library AccumulatorVerifier {
     }
 
     /**
-     * @notice Sorts two arrays in alignment with each other.
-     * @dev This function sorts the indices array and aligns the values array accordingly.
-     * @param indices The array of indices to sort.
-     * @param values The array of values to align with the sorted indices.
-     * @return sortedIndices The sorted array of indices.
-     * @return sortedValues The array of values aligned with the sorted indices.
+     * Sorts two arrays in alignment with each other.
      */
     function sortAligned(
         uint32[] memory indices,

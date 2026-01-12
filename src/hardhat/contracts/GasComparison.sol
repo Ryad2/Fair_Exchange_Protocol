@@ -3,24 +3,16 @@ pragma solidity ^0.8.0;
 
 import {SHA256Evaluator} from "../contracts/SHA256Evaluator.sol";
 
-/**
- * @title GasComparison
- * @notice Test contract to compare gas costs between keccak256 and SHA256
- */
 contract GasComparison {
     /**
-     * @notice Hash a 64-byte value using keccak256
-     * @param data The 64-byte data to hash
-     * @return The keccak256 hash
+     * Hashes a 64-byte value using keccak256.
      */
     function hashKeccak256(bytes calldata data) public pure returns (bytes32) {
         return keccak256(data);
     }
 
     /**
-     * @notice Hash a 64-byte value using SHA256 compression (like sha256GateV2)
-     * @param data The 64-byte data to hash
-     * @return The SHA256 hash
+     * Hashes a 64-byte value using SHA256 compression.
      */
     function hashSHA256(bytes calldata data) public pure returns (bytes32) {
         require(data.length == 64, "Data must be exactly 64 bytes");
@@ -36,12 +28,7 @@ contract GasComparison {
     }
 
     /**
-     * @notice Compare gas costs for both hashing methods
-     * @param data The 64-byte data to hash
-     * @return keccakGas Gas used for keccak256
-     * @return sha256Gas Gas used for SHA256
-     * @return keccakHash The keccak256 hash result
-     * @return sha256Hash The SHA256 hash result
+     * Compares gas costs for both hashing methods.
      */
     function compareGasCosts(bytes calldata data) 
         public 
@@ -68,12 +55,7 @@ contract GasComparison {
     }
 
     /**
-     * @notice Test multiple gates to get average gas costs
-     * @param gates Array of 64-byte gates
-     * @return avgKeccakGas Average gas for keccak256
-     * @return avgSHA256Gas Average gas for SHA256
-     * @return totalKeccakGas Total gas for all keccak256 operations
-     * @return totalSHA256Gas Total gas for all SHA256 operations
+     * Tests multiple gates to get average gas costs.
      */
     function compareMultipleGates(bytes[] calldata gates)
         public

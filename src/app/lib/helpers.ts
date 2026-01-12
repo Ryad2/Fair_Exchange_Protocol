@@ -151,17 +151,25 @@ export function padBytes(bytes: Uint8Array, length: number, right?: boolean) {
 }
 
 export function downloadFile(file: Uint8Array, filename: string) {
-    const blob = new Blob([file.buffer], {
-        type: "application/octet-stream",
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    try {
+        const blob = new Blob([file.buffer], {
+            type: "application/octet-stream",
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        a.style.display = "none";
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }, 100);
+    } catch (error) {
+        console.error("Error downloading file:", error);
+        throw error;
+    }
 }
 
 export function openFile(): Promise<File | null> {

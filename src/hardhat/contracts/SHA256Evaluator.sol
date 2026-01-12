@@ -1,11 +1,6 @@
 // SPDX-License-Identifier: GPL 3.0
 pragma solidity ^0.8.0;
 
-/**
- * @title SHA256Evaluator
- * @notice A library for evaluating SHA-256 hashing operations.
- * @dev This library provides functions to perform SHA-256 hashing and related operations.
- */
 library SHA256Evaluator {
     // Rotates a 32-bit word to the right by a specified number of bits.
     function ror(uint32 w, uint8 n) internal pure returns (uint32) {

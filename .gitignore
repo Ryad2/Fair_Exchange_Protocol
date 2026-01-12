@@ -2,10 +2,11 @@
 
 # dependencies
 /node_modules
+/node_modules/
+**/node_modules/
 /bundler
 src/hardhat/bundler
 bundler-alto/
-desktop/node_modules
 /.pnp
 .pnp.*
 .yarn/*

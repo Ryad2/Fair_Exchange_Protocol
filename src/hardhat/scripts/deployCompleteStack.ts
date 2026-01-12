@@ -52,7 +52,6 @@ interface DeploymentAddresses {
     aes128CtrEvaluator: string;
     circuitEvaluator: string;
     commitmentOpener: string;
-    disputeSOXHelpers: string;
     disputeDeployer: string;
     entryPoint: string;
 }
@@ -76,7 +75,6 @@ async function main() {
         aes128CtrEvaluator: "",
         circuitEvaluator: "",
         commitmentOpener: "",
-        disputeSOXHelpers: "",
         disputeDeployer: "",
         entryPoint: "",
     };
@@ -128,12 +126,6 @@ async function main() {
     await commitmentOpener.waitForDeployment();
     addresses.commitmentOpener = await commitmentOpener.getAddress();
     console.log("  ✅ CommitmentOpener:", addresses.commitmentOpener);
-
-    const DisputeSOXHelpersFactory = await ethers.getContractFactory("DisputeSOXHelpers");
-    const disputeHelpers = await DisputeSOXHelpersFactory.deploy();
-    await disputeHelpers.waitForDeployment();
-    addresses.disputeSOXHelpers = await disputeHelpers.getAddress();
-    console.log("  ✅ DisputeSOXHelpers:", addresses.disputeSOXHelpers);
 
     console.log("");
 
@@ -260,7 +252,6 @@ async function main() {
         "AES128CtrEvaluator",
         "CircuitEvaluator",
         "CommitmentOpener",
-        "DisputeSOXHelpers",
         "DisputeDeployer",
     ];
 
@@ -409,7 +400,6 @@ SIMPLE_OPERATIONS_EVALUATOR=${addresses.simpleOperationsEvaluator}
 AES128_CTR_EVALUATOR=${addresses.aes128CtrEvaluator}
 CIRCUIT_EVALUATOR=${addresses.circuitEvaluator}
 COMMITMENT_OPENER=${addresses.commitmentOpener}
-DISPUTE_SOX_HELPERS=${addresses.disputeSOXHelpers}
 DISPUTE_DEPLOYER=${addresses.disputeDeployer}
 `;
 
@@ -436,7 +426,6 @@ DISPUTE_DEPLOYER=${addresses.disputeDeployer}
             AES128CtrEvaluator: addresses.aes128CtrEvaluator,
             CircuitEvaluator: addresses.circuitEvaluator,
             CommitmentOpener: addresses.commitmentOpener,
-            DisputeSOXHelpers: addresses.disputeSOXHelpers,
             DisputeDeployer: addresses.disputeDeployer,
         },
         entryPoint: addresses.entryPoint,
@@ -467,7 +456,6 @@ DISPUTE_DEPLOYER=${addresses.disputeDeployer}
     console.log("    AES128CtrEvaluator      :", addresses.aes128CtrEvaluator);
     console.log("    CircuitEvaluator        :", addresses.circuitEvaluator);
     console.log("    CommitmentOpener         :", addresses.commitmentOpener);
-    console.log("    DisputeSOXHelpers        :", addresses.disputeSOXHelpers);
     console.log("");
     console.log("  Contrats principaux :");
     console.log("    DisputeDeployer         :", addresses.disputeDeployer);

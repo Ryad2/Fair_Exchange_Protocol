@@ -3,10 +3,6 @@ pragma solidity ^0.8.0;
 
 import "../OptimisticSOXAccount.sol";
 
-/**
- * @dev Minimal mock of an ERC-4337 EntryPoint to test OptimisticSOXAccount flows locally.
- * Holds deposits per account and can forward validateUserOp calls.
- */
 contract MockEntryPoint is IEntryPoint {
     mapping(address => uint256) public deposits;
 
@@ -24,9 +20,6 @@ contract MockEntryPoint is IEntryPoint {
         return deposits[account];
     }
 
-    /**
-     * @dev Helper to invoke validateUserOp on the account as if we were a real EntryPoint.
-     */
     function callValidateUserOp(
         address accountAddress,
         PackedUserOperation calldata userOp,

@@ -166,6 +166,27 @@ export default function NewContractModal({
 
                 const { id, key, h_circuit, h_ct } = json;
 
+                if (!preOut.ciphertext_path) {
+                    throw new Error("ciphertext_path manquant dans la sortie precompute.");
+                }
+                if (
+                    !anyWindow.electronAPI ||
+                    typeof anyWindow.electronAPI.uploadCiphertext !== "function"
+                ) {
+                    throw new Error("electronAPI.uploadCiphertext non disponible.");
+                }
+
+                const uploadResult = await anyWindow.electronAPI.uploadCiphertext({
+                    filePath: preOut.ciphertext_path,
+                    contractId: id,
+                });
+                if (!uploadResult?.success) {
+                    const uploadError =
+                        uploadResult?.error ||
+                        "Erreur inconnue lors de l'envoi du ciphertext.";
+                    throw new Error(uploadError);
+                }
+
                 alert(
                     `Added new contract with ID ${id}. The encryption key is: ${key}`
                 );

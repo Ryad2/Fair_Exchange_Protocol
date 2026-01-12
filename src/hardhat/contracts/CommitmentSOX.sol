@@ -1,18 +1,9 @@
 // SPDX-License-Identifier: GPL 3.0
 pragma solidity ^0.8.0;
 
-/**
- * @title CommitmentOpener
- * @notice A library for opening commitments.
- * @dev This library provides a function to open a commitment by verifying the opening value.
- */
 library CommitmentOpener {
     /**
-     * @notice Opens a commitment by verifying the opening value.
-     * @dev This function checks if the hashed opening value matches the commitment.
-     * @param _commitment The commitment to open.
-     * @param _openingValue The value used to open the commitment.
-     * @return The opening value without the last 16 bytes.
+     * Opens a commitment by verifying the opening value.
      */
     function open(
         bytes32 _commitment,

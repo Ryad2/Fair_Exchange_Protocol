@@ -3,11 +3,6 @@ pragma solidity ^0.8.0;
 
 import {EvaluatorSOX_V2} from "./EvaluatorSOX_V2.sol";
 
-/**
- * @title DisputeSOXHelpers
- * @notice Library containing helper functions for DisputeSOX to reduce contract size
- * @dev Functions are PUBLIC to avoid inlining and reduce DisputeSOX bytecode size.
- */
 library DisputeSOXHelpers {
     struct Step9State {
         uint256 step9Count;

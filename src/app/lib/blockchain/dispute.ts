@@ -183,6 +183,9 @@ async function preflightDisputeCall(
     }
 }
 
+/**
+ * Gets the current state of the dispute contract.
+ */
 export async function getDisputeState(contractAddr: string) {
     if (!isAddress(contractAddr)) return;
 
@@ -190,6 +193,9 @@ export async function getDisputeState(contractAddr: string) {
     return await contract.currState().catch(() => {});
 }
 
+/**
+ * Gets the current challenge value from the dispute contract.
+ */
 export async function getChallenge(contractAddr: string) {
     if (!isAddress(contractAddr)) return;
 
@@ -226,6 +232,9 @@ async function sendDisputeUserOp(
     });
 }
 
+/**
+ * Responds to the challenge with the buyer's response.
+ */
 export async function respondChallenge(
     buyerAddr: string,
     contractAddr: string,
@@ -241,6 +250,9 @@ export async function respondChallenge(
     await sendDisputeUserOp(buyerAddr, contractAddr, callData);
 }
 
+/**
+ * Gets the latest challenge response from the buyer.
+ */
 export async function getLatestChallengeResponse(contractAddr: string) {
     if (!isAddress(contractAddr)) return;
 
@@ -248,6 +260,9 @@ export async function getLatestChallengeResponse(contractAddr: string) {
     return await contract.getLatestBuyerResponse();
 }
 
+/**
+ * Gets the next timeout timestamp for the dispute.
+ */
 export async function getNextDisputeTimeout(contractAddr: string) {
     if (!isAddress(contractAddr)) return;
 
@@ -255,6 +270,9 @@ export async function getNextDisputeTimeout(contractAddr: string) {
     return await contract.nextTimeoutTime().catch(() => {});
 }
 
+/**
+ * Gives the vendor's opinion on the buyer's response (agree or disagree).
+ */
 export async function giveOpinion(
     vendorAddr: string,
     contractAddr: string,
@@ -274,6 +292,9 @@ export async function giveOpinion(
     await sendDisputeUserOp(vendorAddr, contractAddr, callData);
 }
 
+/**
+ * Submits a commitment value to the dispute contract.
+ */
 export async function submitCommitment(
     openingValue: string,
     gateNum: number,
@@ -359,6 +380,9 @@ export async function submitCommitment(
     return userOpHash;
 }
 
+/**
+ * Submits the left commitment data with proofs for a specific gate.
+ */
 export async function submitCommitmentLeft(
     openingValue: string,
     gateNum: number,
@@ -562,6 +586,9 @@ export async function submitCommitmentLeft(
  * utilise onlyExpected() qui vérifie que l'appel vient d'une UserOperation.
  * Utilisée uniquement pour tester et voir l'erreur exacte.
  */
+/**
+ * Submits the left commitment data directly via transaction (without user operation).
+ */
 export async function submitCommitmentLeftDirect(
     openingValue: string,
     gateNum: number,
@@ -634,6 +661,9 @@ export async function submitCommitmentLeftDirect(
     }
 }
 
+/**
+ * Submits the right commitment data with proofs for a specific gate.
+ */
 export async function submitCommitmentRight(
     proof: Uint8Array[][],
     vendorAddr: string,
@@ -787,6 +817,9 @@ export async function submitCommitmentRight(
     }
 }
 
+/**
+ * Finishes the dispute process.
+ */
 export async function finishDispute(
     state: number,
     requesterAddr: string,
@@ -803,6 +836,9 @@ export async function finishDispute(
     }
 }
 
+/**
+ * Ends the dispute timeout, allowing the requester to claim timeout.
+ */
 export async function endDisputeTimeout(
     contractAddr: string,
     requesterAddr: string
@@ -825,6 +861,9 @@ export async function endDisputeTimeout(
     }
 }
 
+/**
+ * Gets step 9 information from the dispute contract.
+ */
 export async function getStep9Info(contractAddr: string) {
     if (!isAddress(contractAddr)) return null;
 
@@ -842,6 +881,9 @@ export async function getStep9Info(contractAddr: string) {
     }
 }
 
+/**
+ * Gets detailed information about the dispute contract.
+ */
 export async function getDisputeDetails(contractAddr: string) {
     if (!isAddress(contractAddr)) return null;
 

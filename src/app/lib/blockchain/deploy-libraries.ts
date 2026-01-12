@@ -16,10 +16,7 @@ function getTimestamp(contracts: DeployedContracts): number {
 }
 
 /**
- * Récupère les adresses des libraries déployées depuis deployed-contracts.json.
- * 
- * @param _sponsorAddr L'adresse du sponsor (non utilisée, conservée pour compatibilité)
- * @returns Une Map avec les noms des libraries et leurs adresses déployées
+ * Gets deployed library addresses from deployed-contracts.json.
  */
 export async function deployLibraries(
     _sponsorAddr: string

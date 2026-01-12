@@ -3,8 +3,8 @@
 import Modal from "../common/Modal";
 import Button from "../common/Button";
 import { Contract } from "./NonAcceptedPrecontractsListView";
-import init, { bytes_to_hex, hex_to_bytes } from "@/app/lib/crypto_lib";
-import { downloadFile } from "@/app/lib/helpers";
+import init from "@/app/lib/crypto_lib";
+import { downloadFile, hexToBytes } from "@/app/lib/helpers";
 
 const BLOCK_SIZE = 64;
 
@@ -147,7 +147,7 @@ export default function NonAcceptedPrecontractModal({
                 if (fileResponse.ok) {
                     const fileData = await fileResponse.json();
                     if (fileData.file) {
-                        const ctBytes = hex_to_bytes(fileData.file);
+                        const ctBytes = hexToBytes(fileData.file);
                         downloadFile(ctBytes, `contract_${id}_ciphertext.enc`);
                         console.log(`✅ Ciphertext téléchargé pour le contrat ${id}`);
                     }

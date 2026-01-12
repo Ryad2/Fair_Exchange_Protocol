@@ -146,6 +146,9 @@ async function triggerBundlerSendNow(): Promise<boolean> {
     }
 }
 
+/**
+ * Gets the receipt for a user operation hash.
+ */
 export async function getUserOperationReceipt(
     userOpHash: string
 ): Promise<UserOperationReceipt | null> {
@@ -185,6 +188,9 @@ export async function getUserOperationReceipt(
     return payload.result as UserOperationReceipt;
 }
 
+/**
+ * Waits for a user operation receipt to be available.
+ */
 export async function waitForUserOperationReceipt(
     userOpHash: string,
     options?: { timeoutMs?: number; pollIntervalMs?: number }
@@ -204,6 +210,9 @@ export async function waitForUserOperationReceipt(
     throw new Error("UserOperation receipt not found (bundler did not include it yet).");
 }
 
+/**
+ * Sends a user operation to the bundler (ERC-4337 EntryPoint v0.6/v0.7).
+ */
 export async function sendUserOperation(params: {
     sender: string;
     callData: string;
@@ -452,6 +461,9 @@ export async function sendUserOperation(params: {
     return userOpHash;
 }
 
+/**
+ * Sends a user operation to the bundler (ERC-4337 EntryPoint v0.8 with EIP-7702 support).
+ */
 export async function sendUserOperationV8(params: {
     sender: string;
     callData: string;
