@@ -44,9 +44,9 @@ echo "📝 Étape 2b: Déploiement du contrat de simulation v0.8..."
 npx hardhat run scripts/deployEntryPointSimulationsV8.ts --network localhost
 echo ""
 
-# Étape 3: Déployer toutes les bibliothèques et contrats principaux
-echo "📝 Étape 3: Déploiement de tous les contrats SOX..."
-npx hardhat run scripts/deployAll.ts --network localhost
+# Étape 3: Déployer toutes les bibliothèques et contrats principaux + générer les JSON
+echo "📝 Étape 3: Déploiement de tous les contrats SOX et génération des JSON..."
+npx hardhat run scripts/deployCompleteStack.ts --network localhost
 echo ""
 
 # Étape 4: Déployer le delegate EIP-7702
@@ -63,6 +63,7 @@ echo "📋 Prochaines étapes :"
 echo "  1. Lancez le bundler : cd bundler-alto && ./run-local.sh"
 echo "  2. Lancez Next.js : npm run dev"
 echo ""
+
 
 
 
