@@ -35,7 +35,6 @@ export async function POST(req: Request) {
             );
         }
 
-        //
         const { evaluated_circuit_hex } = await req.json();
         
         if (!evaluated_circuit_hex) {
