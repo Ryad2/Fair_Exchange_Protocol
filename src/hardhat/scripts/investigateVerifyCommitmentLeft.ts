@@ -140,27 +140,24 @@ async function main() {
         2, // numBlocks
         3, // numGates
         deployer.address, // sbSponsor
-        { vareade: 5n }
+        { value: 5n }
     );
     await optimisticAccount.waitForDeployment();
     const optimisticAddr = await optimisticAccount.getAddress();
     console.log(`✅ OptimisticSOXAccount: ${optimisticAddr}`);
 
-    // Send payment first
-    await optimisticAccount.sendPayment({ vareade: ethers.parseEther("1.1") });
-    console.log(`✅ Paiement sent`);
+    await optimisticAccount.sendPayment({ value: ethers.parseEther("1.1") });
+    console.log(`✅ Payment sent`);
 
-    // Send key to OptimisticSOXAccount
     const keyBytes16 = ethers.hexlify(key);
     await optimisticAccount.sendKey(keyBytes16);
-    console.log(`✅ Clé sente au contrat\n`);
+    console.log(`✅ Key sent to contract\n`);
 
-    // Deploy DisputeSOXAccount directly
     const DisputeSOXAccountFactory = await ethers.getContractFactory("DisputeSOXAccount", {
         libraries: {
             AccumulatorVerifier: await accumulatorVerifier.getAddress(),
             CommitmentOpener: await commitmentOpener.getAddress(),
-            SHA256Evareadator: await sha256Evareadator.getAddress(),
+            SHA256Evaluator: await sha256Evaluator.getAddress(),
         },
     });
     
@@ -168,37 +165,35 @@ async function main() {
     const disputeAccount = await DisputeSOXAccountFactory.deploy(
         entryPointAddr,
         optimisticAddr,
-        2, // numBlocks
-        3, // numGates
-        commitment.c, // commitment
-        1, // circuitVersion (V2)
-        deployer.address, // buyerSigner (0x0 = use buyer address)
-        deployer.address, // vendorSigner (0x0 = use vendor address)
-        deployer.address, // buyerDisputeSponsorSigner
-        deployer.address, // vendorDisputeSponsor
-        deployer.address, // vendorDisputeSponsorSigner
-        { vareade: 0 }
+        2,
+        3,
+        commitment.c,
+        1,
+        deployer.address,
+        deployer.address,
+        deployer.address,
+        deployer.address,
+        deployer.address,
+        { value: 0 }
     );
     await disputeAccount.waitForDeployment();
     console.log(`✅ DisputeSOXAccount: ${await disputeAccount.getAddress()}\n`);
 
-    // Verify commitment
     const contractCommitment = await disputeAccount.commitment();
-    const computedCommitment = ethers.keccak256(openingVareadeBytes);
-    console.log("🔍 STEP 1: VERIFICATION du commitment");
-    console.log(`   - calculated: ${computedCommitment}`);
-    console.log(`   - Contrat: ${contractCommitment}`);
+    const computedCommitment = ethers.keccak256(openingValueBytes);
+    console.log("🔍 STEP 1: Verifying commitment");
+    console.log(`   - Calculated: ${computedCommitment}`);
+    console.log(`   - Contract: ${contractCommitment}`);
     if (computedCommitment.toLowerCase() === contractCommitment.toLowerCase()) {
-        console.log(`   ✅ Commitments matchesent!\n`);
+        console.log(`   ✅ Commitments match!\n`);
     } else {
-        console.log(`   ❌ Commitments ne matchesent pas!\n`);
+        console.log(`   ❌ Commitments do not match!\n`);
         return;
     }
 
-    // Test openCommitment
-    console.log("🔍 STEP 2: Test de openCommitment");
+    console.log("🔍 STEP 2: Testing openCommitment");
     try {
-        const hCircuitCt = await disputeAccount.openCommitment.staticCall(openingVareadeHex);
+        const hCircuitCt = await disputeAccount.openCommitment.staticCall(openingValueHex);
         console.log(`   ✅ openCommitment succeeds`);
         console.log(`   - hCircuitCt[0] (hCircuit): ${ethers.hexlify(hCircuitCt[0])}`);
         console.log(`   - hCircuitCt[1] (hCt): ${ethers.hexlify(hCircuitCt[1])}\n`);
@@ -207,42 +202,37 @@ async function main() {
         return;
     }
 
-    // Test gate bytes length
-    console.log("🔍 STEP 3: VERIFICATION du gate bytes");
+    console.log("🔍 STEP 3: Verifying gate bytes");
     console.log(`   - gate_bytes.length: ${gateBytesArray.length} bytes`);
     if (gateBytesArray.length === 64) {
-        console.log(`   ✅ gate_bytes.length est correct (64 bytes)\n`);
+        console.log(`   ✅ gate_bytes.length is correct (64 bytes)\n`);
     } else {
-        console.log(`   ❌ gate_bytes.length est incorrect (devrait être 64)\n`);
+        console.log(`   ❌ gate_bytes.length is incorrect (should be 64)\n`);
         return;
     }
 
-    // Test evareadateGateFromSons (via a helper function if available, or manually)
-    console.log("🔍 STEP 4: Test de evareadateGateFromSons");
+    console.log("🔍 STEP 4: Testing evaluateGateFromSons");
     try {
-        // Get AES key from OptimisticSOXAccount
         const contractKey = await optimisticAccount.key();
-        console.log(`   - Clé du contrat: ${ethers.hexlify(contractKey)}`);
-        console.log(`   - Clé utilisée: ${keyHex}`);
+        console.log(`   - Contract key: ${ethers.hexlify(contractKey)}`);
+        console.log(`   - Key used: ${keyHex}`);
         
-        // We can't directly test evareadateGateFromSons, but we can check if the key matches
         if (ethers.hexlify(contractKey).toLowerCase() === keyHex.toLowerCase()) {
-            console.log(`   ✅ La clé matches\n`);
+            console.log(`   ✅ Key matches\n`);
         } else {
-            console.log(`   ⚠️  La clé ne matches pas (mais cela pourrait être normal si le format est différent)\n`);
+            console.log(`   ⚠️  Key does not match (but this might be normal if format is different)\n`);
         }
     } catch (error: any) {
-        console.log(`   ⚠️  error lors de la VERIFICATION de la clé: ${error.message}\n`);
+        console.log(`   ⚠️  Error verifying key: ${error.message}\n`);
     }
 
-    // Test verifyCommitmentLeft step by step
-    console.log("🔍 STEP 5: Test de verifyCommitmentLeft (complet)");
+    console.log("🔍 STEP 5: Testing verifyCommitmentLeft (complete)");
     try {
         const result = await disputeAccount.testVerifyCommitmentLeft(
-            openingVareadeHex,
+            openingValueHex,
             gateNum,
             gateBytesArray,
-            vareadesArray,
+            valuesArray,
             currAccArray,
             proof1Array,
             proof2Array,
@@ -250,30 +240,26 @@ async function main() {
         );
         
         if (result) {
-            console.log(`   ✅ verifyCommitmentLeft retourne: ${result}\n`);
+            console.log(`   ✅ verifyCommitmentLeft returns: ${result}\n`);
         } else {
-            console.log(`   ❌ verifyCommitmentLeft retourne: ${result}\n`);
-            console.log(`   📋 Cela signifie qu'une des VERIFICATIONs a échoué:\n`);
-            console.log(`      1. AccumulatorVerifier.verify pour proof1`);
-            console.log(`      2. AccumulatorVerifier.verify pour proof2`);
-            console.log(`      3. AccumulatorVerifier.verifyExt pour proofExt\n`);
+            console.log(`   ❌ verifyCommitmentLeft returns: ${result}\n`);
+            console.log(`   📋 This means one of the verifications failed:\n`);
+            console.log(`      1. AccumulatorVerifier.verify for proof1`);
+            console.log(`      2. AccumulatorVerifier.verify for proof2`);
+            console.log(`      3. AccumulatorVerifier.verifyExt for proofExt\n`);
         }
     } catch (error: any) {
-        console.log(`   ❌ error lors de l'appel: ${error.message}\n`);
+        console.log(`   ❌ Error during call: ${error.message}\n`);
     }
 
-    // Test individual accumulator verifications
-    console.log("🔍 STEP 6: Test des VERIFICATIONs individuelles");
+    console.log("🔍 STEP 6: Testing individual verifications");
     
-    // Get hCircuitCt
-    const hCircuitCt = await disputeAccount.openCommitment.staticCall(openingVareadeHex);
+    const hCircuitCt = await disputeAccount.openCommitment.staticCall(openingValueHex);
     
-    // Prepare gateNumArray
-    const gateNumArray = [gateNum - 1]; // Convert to 0-indexed
+    const gateNumArray = [gateNum - 1];
     const gateKeccak = [ethers.keccak256(gateBytesArray)];
     
-    // Test proof1 verification
-    console.log(`   Test 1: AccumulatorVerifier.verify pour proof1`);
+    console.log(`   Test 1: AccumulatorVerifier.verify for proof1`);
     console.log(`      - Root: ${ethers.hexlify(hCircuitCt[0])}`);
     console.log(`      - gateNumArray: [${gateNumArray[0]}] (0-indexed, gate ${gateNum})`);
     console.log(`      - gateKeccak: ${gateKeccak[0]}`);
@@ -290,28 +276,21 @@ async function main() {
         console.log(`      ❌ proof1 verification fails: ${error.message}\n`);
     }
 
-    // For proof2, we need to extract nonConstantSons and vareades
-    // This is complex, so let's just test verifyExt
-    console.log(`   Test 2: AccumulatorVerifier.verifyExt pour proofExt`);
+    console.log(`   Test 2: AccumulatorVerifier.verifyExt for proofExt`);
     console.log(`      - i: 0 (0-indexed, Step 8b)`);
     console.log(`      - prevRoot: bytes32(0)`);
     console.log(`      - currRoot: ${ethers.hexlify(currAccArray)}`);
     console.log(`      - proof_ext layers: ${proofExtArray.length}`);
     
-    // We need to compute keccak256(gateRes) for verifyExt
-    // But we don't have gateRes directly, so we'll test with a placeholder
-    // Actually, let's test verifyExt with the actual vareades from the contract
     try {
-        // We need to get the gateRes from evareadateGateFromSons
-        // For now, let's just test if verifyExt can be called
-        const gateResKeccak = ethers.keccak256(ethers.hexlify(new Uint8Array(32))); // Placeholder
+        const gateResKeccak = ethers.keccak256(ethers.hexlify(new Uint8Array(32)));
         console.log(`      - gateResKeccak (placeholder): ${gateResKeccak}`);
         
         const resultExt = await accumulatorVerifier.verifyExt.staticCall(
-            0, // i=0 (0-indexed)
-            ethers.ZeroHash, // prevRoot = bytes32(0)
-            currAccArray, // currRoot
-            gateResKeccak, // addedValKeccak (this is wrong, but let's see the error)
+            0,
+            ethers.ZeroHash,
+            currAccArray,
+            gateResKeccak,
             proofExtArray
         );
         console.log(`      ✅ proofExt verification: ${resultExt}\n`);
@@ -320,7 +299,7 @@ async function main() {
     }
 
     console.log("=".repeat(80));
-    console.log("✅ investigation completedE");
+    console.log("✅ INVESTIGATION COMPLETED");
     console.log("=".repeat(80));
 }
 
