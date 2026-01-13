@@ -13,7 +13,8 @@ The `require(false)` issue when sending vendor sponsor fees has been fixed in:
 **Simply run this script which does everything automatically**:
 
 ```bash
-cd /Applications/sox_implementation/src/hardhat
+# From project root
+cd src/hardhat
 npx hardhat run scripts/deployCompleteStack.ts --network localhost
 ```
 
@@ -30,7 +31,7 @@ This script will automatically:
 
 1. **Restart web application**:
 ```bash
-cd /Applications/sox_implementation
+# From project root
 # Stop app if running (Ctrl+C)
 npm run dev
 ```
@@ -57,7 +58,8 @@ npm run dev
 To verify everything works:
 
 ```bash
-cd /Applications/sox_implementation/src/hardhat
+# From project root
+cd src/hardhat
 npx hardhat run scripts/testDeployOptimisticSOXAccount.ts --network localhost
 ```
 

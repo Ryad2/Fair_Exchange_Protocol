@@ -91,7 +91,6 @@ if check_port 3000; then
     echo ""
     echo -e "${GREEN}   📍 Interface will be accessible at: http://localhost:3000${NC}"
     echo ""
-    cd src
     npm run dev
 else
     echo -e "${RED}   ❌ Port 3000 already occupied${NC}"
@@ -99,6 +98,5 @@ else
     kill_port 3000
     sleep 2
     echo -e "${GREEN}   🚀 Restarting Next.js...${NC}"
-    cd src
     npm run dev
 fi

@@ -21,7 +21,7 @@ if ! curl -s http://localhost:8545 > /dev/null 2>&1; then
     echo -e "${RED}❌ Hardhat node is not running${NC}"
     echo ""
     echo "Start Hardhat node in a separate terminal:"
-    echo -e "${GREEN}  cd /Applications/sox_implementation/src/hardhat && npx hardhat node${NC}"
+    echo -e "${GREEN}  cd src/hardhat && npx hardhat node${NC}"
     echo ""
     exit 1
 fi

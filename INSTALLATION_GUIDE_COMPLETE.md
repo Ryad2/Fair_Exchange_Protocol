@@ -304,7 +304,7 @@ Keep this terminal open. Hardhat node listens on `http://localhost:8545`.
 In a **second terminal**, deploy all contracts:
 
 ```bash
-cd /Applications/sox_implementation  # or your path
+# From project root
 ./deploy-all.sh
 ```
 
@@ -349,8 +349,7 @@ The order is crucial to avoid errors. Follow this exact order:
 cd src/hardhat
 npx hardhat node
 
-# 2. In another terminal, deploy contracts
-cd /Applications/sox_implementation
+# 2. In another terminal, deploy contracts (from project root)
 ./deploy-all.sh
 
 # 3. NOW you can start Next.js
@@ -365,7 +364,7 @@ npx hardhat node
 
 ### Terminal 2: Deploy contracts
 ```bash
-cd /Applications/sox_implementation  # or your path
+# From project root
 ./deploy-all.sh
 ```
 
@@ -377,7 +376,7 @@ cd /Applications/sox_implementation  # or your path
 
 ### Terminal 3: Alto Bundler
 ```bash
-cd /Applications/sox_implementation  # or your path
+# From project root
 ./run-alto.sh
 ```
 
@@ -385,7 +384,7 @@ The bundler will be accessible at `http://localhost:4337/rpc`
 
 ### Terminal 4: Next.js Application
 ```bash
-cd /Applications/sox_implementation  # or your path
+# From project root
 npm run dev
 ```
 
@@ -899,8 +898,7 @@ Here is the exact order to start the project:
 cd src/hardhat
 npx hardhat node
 
-# 3. Terminal 2: Deploy contracts
-cd /Applications/sox_implementation
+# 3. Terminal 2: Deploy contracts (from project root)
 ./deploy-all.sh
 
 # 4. Terminal 3: Start bundler

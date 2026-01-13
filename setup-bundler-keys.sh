@@ -111,7 +111,9 @@ const publicKeys = privateKeys.map(pk => {
 console.log(JSON.stringify(publicKeys));
 EOF
 
-cd /Applications/sox_implementation
+# Get project root directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
 PUBLIC_KEYS_JSON=$(node "$TEMP_SCRIPT" ${PRIVATE_KEYS[@]})
 rm "$TEMP_SCRIPT"
 
