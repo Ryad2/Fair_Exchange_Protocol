@@ -1,64 +1,64 @@
-# 🚀 Guide de redéploiement des contrats
+# 🚀 Contract Redeployment Guide
 
-## ✅ Correction apportée
+## ✅ Fix Applied
 
-Le problème `require(false)` lors de l'envoi des frais du sponsor vendor a été corrigé dans :
-- **OptimisticSOXAccount.sol** : Passage de `msg.sender` directement au constructeur
-- **DisputeSOXAccount.sol** : Validation que `buyerDisputeSponsor` et `vendorDisputeSponsor` sont définis
+The `require(false)` issue when sending vendor sponsor fees has been fixed in:
+- **OptimisticSOXAccount.sol**: Pass `msg.sender` directly to constructor
+- **DisputeSOXAccount.sol**: Validate that `buyerDisputeSponsor` and `vendorDisputeSponsor` are defined
 
-## 📋 Comment redéployer
+## 📋 How to Redeploy
 
-### Méthode simple (recommandée)
+### Simple Method (Recommended)
 
-**Exécutez simplement ce script qui fait tout automatiquement** :
+**Simply run this script which does everything automatically**:
 
 ```bash
 cd /Applications/sox_implementation/src/hardhat
 npx hardhat run scripts/deployCompleteStack.ts --network localhost
 ```
 
-Ce script va automatiquement :
-1. ✅ Compiler tous les contrats (avec les corrections)
-2. ✅ Déployer toutes les libraries nécessaires
-3. ✅ Déployer DisputeDeployer (avec les libraries linkées)
-4. ✅ Déployer EntryPoint (ERC-4337)
-5. ✅ Copier les ABI/JSON dans `src/app/lib/blockchain/contracts/`
-6. ✅ Mettre à jour la config du bundler
-7. ✅ Créer/mettre à jour `.env.local` avec les nouvelles adresses
+This script will automatically:
+1. ✅ Compile all contracts (with fixes)
+2. ✅ Deploy all required libraries
+3. ✅ Deploy DisputeDeployer (with linked libraries)
+4. ✅ Deploy EntryPoint (ERC-4337)
+5. ✅ Copy ABI/JSON to `src/app/lib/blockchain/contracts/`
+6. ✅ Update bundler config
+7. ✅ Create/update `.env.local` with new addresses
 
-### Après le déploiement
+### After Deployment
 
-1. **Redémarrer l'application web** :
+1. **Restart web application**:
 ```bash
 cd /Applications/sox_implementation
-# Arrêter l'app si elle tourne (Ctrl+C)
+# Stop app if running (Ctrl+C)
 npm run dev
 ```
 
-2. **Redémarrer le bundler** (si nécessaire) :
+2. **Restart bundler** (if needed):
 ```bash
-# Le bundler devrait utiliser automatiquement la nouvelle config
-# Sinon, redémarrer le bundler manuellement
+# Bundler should automatically use new config
+# Otherwise, restart bundler manually
 ```
 
-3. **Tester avec un nouveau contrat** :
-   - Créez un **nouveau contrat** via l'interface web
-   - Les anciens contrats ne seront **pas** mis à jour automatiquement
-   - Vous devez créer de nouveaux contrats avec la nouvelle version déployée
+3. **Test with a new contract**:
+   - Create a **new contract** via web interface
+   - Old contracts will **not** be automatically updated
+   - You must create new contracts with the newly deployed version
 
 ## ⚠️ Important
 
-- Les contrats déployés **avant** ce redéploiement continueront d'utiliser l'ancienne version
-- Vous devez créer de **nouveaux contrats** pour bénéficier des corrections
-- Les anciens contrats existants ne seront **pas** affectés par ce redéploiement
+- Contracts deployed **before** this redeployment will continue using the old version
+- You must create **new contracts** to benefit from the fixes
+- Existing old contracts will **not** be affected by this redeployment
 
-## 🧪 Vérification
+## 🧪 Verification
 
-Pour vérifier que tout fonctionne :
+To verify everything works:
 
 ```bash
 cd /Applications/sox_implementation/src/hardhat
 npx hardhat run scripts/testDeployOptimisticSOXAccount.ts --network localhost
 ```
 
-Ce script va déployer un contrat de test et vérifier que tout fonctionne correctement.
+This script will deploy a test contract and verify everything works correctly.

@@ -1,43 +1,43 @@
 #!/bin/bash
 
-# Script pour configurer automatiquement le bundler et mettre à jour les clés publiques
-# après téléchargement/clonage du bundler
+# Script to automatically configure bundler and update public keys
+# after downloading/cloning the bundler
 
 set -e
 
 echo "=================================================================================="
-echo "🔧 CONFIGURATION AUTOMATIQUE DU BUNDLER ET DES CLÉS PUBLIQUES"
+echo "🔧 AUTOMATIC BUNDLER AND PUBLIC KEYS CONFIGURATION"
 echo "=================================================================================="
 echo ""
 
-# Couleurs
+# Colors
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-# Vérifier que Node.js est installé
+# Check that Node.js is installed
 if ! command -v node &> /dev/null; then
-    echo "❌ Node.js n'est pas installé. Veuillez l'installer d'abord."
+    echo "❌ Node.js is not installed. Please install it first."
     exit 1
 fi
 
-# Vérifier que le bundler existe
+# Check that bundler exists
 if [ ! -d "bundler-alto" ]; then
-    echo "❌ Le répertoire bundler-alto n'existe pas."
-    echo "💡 Exécutez d'abord: ./install-alto.sh"
+    echo "❌ bundler-alto directory does not exist."
+    echo "💡 Run first: ./install-alto.sh"
     exit 1
 fi
 
-# Extraire les clés privées de hardhat.config.ts
-echo "📋 ÉTAPE 1: Extraction des clés privées depuis hardhat.config.ts..."
+# Extract private keys from hardhat.config.ts
+echo "📋 STEP 1: Extracting private keys from hardhat.config.ts..."
 HARDHAT_CONFIG="src/hardhat/hardhat.config.ts"
 
 if [ ! -f "$HARDHAT_CONFIG" ]; then
-    echo "❌ Fichier hardhat.config.ts non trouvé: $HARDHAT_CONFIG"
+    echo "❌ hardhat.config.ts file not found: $HARDHAT_CONFIG"
     exit 1
 fi
 
-# Extraire les clés privées (les 4 premières comptes Hardhat)
+# Extract private keys (first 4 Hardhat accounts)
 PRIVATE_KEYS=(
     "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"  # sponsor
     "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"  # buyer
@@ -48,17 +48,17 @@ PRIVATE_KEYS=(
 EXECUTOR_KEYS="${PRIVATE_KEYS[0]},${PRIVATE_KEYS[1]},${PRIVATE_KEYS[2]},${PRIVATE_KEYS[3]}"
 UTILITY_KEY="${PRIVATE_KEYS[0]}"
 
-echo "   ✅ Clés privées extraites"
+echo "   ✅ Private keys extracted"
 echo "   Executor keys: ${EXECUTOR_KEYS:0:50}..."
 echo "   Utility key: ${UTILITY_KEY:0:50}..."
 
-# Extraire l'adresse EntryPoint depuis deployed-contracts.json ou .env.local
+# Extract EntryPoint address from deployed-contracts.json or .env.local
 echo ""
-echo "📋 ÉTAPE 1b: Extraction de l'adresse EntryPoint..."
+echo "📋 STEP 1b: Extracting EntryPoint address..."
 
 ENTRY_POINT_ADDRESS=""
 
-# Essayer depuis deployed-contracts.json
+# Try from deployed-contracts.json
 if [ -f "deployed-contracts.json" ]; then
     if command -v jq &> /dev/null; then
         ENTRY_POINT_ADDRESS=$(jq -r '.entryPoint // empty' deployed-contracts.json 2>/dev/null)
@@ -67,36 +67,36 @@ if [ -f "deployed-contracts.json" ]; then
     fi
 fi
 
-# Si pas trouvé, essayer depuis .env.local
+# If not found, try from .env.local
 if [ -z "$ENTRY_POINT_ADDRESS" ] && [ -f ".env.local" ]; then
     ENTRY_POINT_ADDRESS=$(grep "NEXT_PUBLIC_ENTRY_POINT=" .env.local | cut -d'=' -f2 | tr -d ' \n')
 fi
 
-# Si toujours pas trouvé, utiliser l'adresse canonique par défaut
+# If still not found, use canonical default address
 if [ -z "$ENTRY_POINT_ADDRESS" ]; then
     ENTRY_POINT_ADDRESS="0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108"
-    echo "   ⚠️  Adresse EntryPoint non trouvée, utilisation de l'adresse canonique par défaut"
+    echo "   ⚠️  EntryPoint address not found, using default canonical address"
 else
-    echo "   ✅ Adresse EntryPoint trouvée"
+    echo "   ✅ EntryPoint address found"
 fi
 
 echo "   EntryPoint: ${ENTRY_POINT_ADDRESS}"
 
-# Calculer les clés publiques correspondantes
+# Calculate corresponding public keys
 echo ""
-echo "📋 ÉTAPE 2: Calcul des clés publiques correspondantes..."
+echo "📋 STEP 2: Calculating corresponding public keys..."
 
-# Utiliser ethers depuis src/hardhat/node_modules
+# Use ethers from src/hardhat/node_modules
 HARDHAT_NODE_MODULES="src/hardhat/node_modules"
 
 if [ ! -d "$HARDHAT_NODE_MODULES" ]; then
-    echo "   ⚠️  node_modules Hardhat non trouvé, installation en cours..."
+    echo "   ⚠️  Hardhat node_modules not found, installing..."
     cd src/hardhat
     npm install
     cd ../..
 fi
 
-# Créer un script Node.js temporaire pour calculer les adresses
+# Create temporary Node.js script to calculate addresses
 TEMP_SCRIPT=$(mktemp)
 cat > "$TEMP_SCRIPT" << EOF
 const path = require('path');
@@ -115,22 +115,22 @@ cd /Applications/sox_implementation
 PUBLIC_KEYS_JSON=$(node "$TEMP_SCRIPT" ${PRIVATE_KEYS[@]})
 rm "$TEMP_SCRIPT"
 
-# Parser le JSON (simple extraction)
+# Parse JSON (simple extraction)
 PUBLIC_KEYS=($(echo "$PUBLIC_KEYS_JSON" | node -e "const d=require('fs').readFileSync(0,'utf8'); JSON.parse(d).forEach(k=>console.log(k))"))
 
-echo "   ✅ Clés publiques calculées:"
+echo "   ✅ Public keys calculated:"
 for i in "${!PUBLIC_KEYS[@]}"; do
     echo "      ${PUBLIC_KEYS[$i]}"
 done
 
-# Mettre à jour config.localhost.json
+# Update config.localhost.json
 echo ""
-echo "📋 ÉTAPE 3: Mise à jour de bundler-alto/config.localhost.json..."
+echo "📋 STEP 3: Updating bundler-alto/config.localhost.json..."
 
 CONFIG_FILE="bundler-alto/config.localhost.json"
 
 if [ ! -f "$CONFIG_FILE" ]; then
-    echo "   ⚠️  Fichier non trouvé, création..."
+    echo "   ⚠️  File not found, creating..."
     mkdir -p bundler-alto
     cat > "$CONFIG_FILE" << EOF
 {
@@ -155,11 +155,11 @@ if [ ! -f "$CONFIG_FILE" ]; then
 }
 EOF
 else
-    # Mettre à jour avec jq si disponible, sinon avec sed
+    # Update with jq if available, otherwise with sed
     if command -v jq &> /dev/null; then
         jq ".executor-private-keys = \"${EXECUTOR_KEYS}\" | .utility-private-key = \"${UTILITY_KEY}\" | .entrypoints = \"${ENTRY_POINT_ADDRESS}\"" "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" && mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
     else
-        # Utiliser sed comme fallback
+        # Use sed as fallback
         sed -i.bak "s|\"executor-private-keys\": \".*\"|\"executor-private-keys\": \"${EXECUTOR_KEYS}\"|" "$CONFIG_FILE"
         sed -i.bak "s|\"utility-private-key\": \".*\"|\"utility-private-key\": \"${UTILITY_KEY}\"|" "$CONFIG_FILE"
         sed -i.bak "s|\"entrypoints\": \".*\"|\"entrypoints\": \"${ENTRY_POINT_ADDRESS}\"|" "$CONFIG_FILE"
@@ -167,16 +167,16 @@ else
     fi
 fi
 
-echo "   ✅ ${CONFIG_FILE} mis à jour"
+echo "   ✅ ${CONFIG_FILE} updated"
 
-# Mettre à jour scripts/config.local.json
+# Update scripts/config.local.json
 echo ""
-echo "📋 ÉTAPE 4: Mise à jour de bundler-alto/scripts/config.local.json..."
+echo "📋 STEP 4: Updating bundler-alto/scripts/config.local.json..."
 
 SCRIPTS_CONFIG_FILE="bundler-alto/scripts/config.local.json"
 
 if [ ! -f "$SCRIPTS_CONFIG_FILE" ]; then
-    echo "   ⚠️  Fichier non trouvé, création..."
+    echo "   ⚠️  File not found, creating..."
     mkdir -p bundler-alto/scripts
     cat > "$SCRIPTS_CONFIG_FILE" << EOF
 {
@@ -211,60 +211,59 @@ else
     fi
 fi
 
-echo "   ✅ ${SCRIPTS_CONFIG_FILE} mis à jour"
+echo "   ✅ ${SCRIPTS_CONFIG_FILE} updated"
 
-# Vérifier que les dépendances sont installées
+# Check that dependencies are installed
 echo ""
-echo "📋 ÉTAPE 5: Vérification des dépendances du bundler..."
+echo "📋 STEP 5: Checking bundler dependencies..."
 
 if [ ! -d "bundler-alto/node_modules" ]; then
-    echo "   ⚠️  node_modules non trouvé, installation en cours..."
+    echo "   ⚠️  node_modules not found, installing..."
     cd bundler-alto
     if command -v pnpm &> /dev/null; then
         pnpm install
     else
-        echo "   ❌ pnpm n'est pas installé. Installation en cours..."
+        echo "   ❌ pnpm is not installed. Installing..."
         npm install -g pnpm
         pnpm install
     fi
     cd ..
 else
-    echo "   ✅ Dépendances déjà installées"
+    echo "   ✅ Dependencies already installed"
 fi
 
-# Résumé
+# Summary
 echo ""
 echo "=================================================================================="
-echo -e "${GREEN}✅ CONFIGURATION TERMINÉE AVEC SUCCÈS !${NC}"
+echo -e "${GREEN}✅ CONFIGURATION COMPLETED SUCCESSFULLY !${NC}"
 echo "=================================================================================="
 echo ""
-echo "📋 RÉSUMÉ:"
+echo "📋 SUMMARY:"
 echo ""
-echo "   Clés privées configurées:"
+echo "   Private keys configured:"
 echo "      Executor keys: ${EXECUTOR_KEYS:0:50}..."
 echo "      Utility key: ${UTILITY_KEY:0:50}..."
 echo ""
-echo "   Clés publiques correspondantes:"
+echo "   Corresponding public keys:"
 for i in "${!PUBLIC_KEYS[@]}"; do
     echo "      ${PUBLIC_KEYS[$i]}"
 done
 echo ""
-echo "   EntryPoint configuré:"
+echo "   EntryPoint configured:"
 echo "      ${ENTRY_POINT_ADDRESS}"
 echo ""
-echo "   Fichiers mis à jour:"
+echo "   Files updated:"
 echo "      ✅ bundler-alto/config.localhost.json"
 echo "      ✅ bundler-alto/scripts/config.local.json"
 echo ""
-echo "📋 PROCHAINES ÉTAPES:"
+echo "📋 NEXT STEPS:"
 echo ""
-echo "1. Vérifier que Hardhat node est lancé:"
+echo "1. Verify Hardhat node is running:"
 echo "   cd src/hardhat && npx hardhat node"
 echo ""
-echo "2. Lancer le bundler:"
+echo "2. Start bundler:"
 echo "   cd bundler-alto && ./run-local.sh"
 echo ""
-echo "3. (Optionnel) Builder le bundler si nécessaire:"
+echo "3. (Optional) Build bundler if needed:"
 echo "   cd bundler-alto && pnpm run build:all"
 echo ""
-
