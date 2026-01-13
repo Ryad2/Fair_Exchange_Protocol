@@ -76,27 +76,26 @@ async function main() {
         });
 
         console.log("   Transaction hash:", tx.hash);
-        console.log("   En attente de confirmation...");
+        console.log("   Waiting for confirmation...");
         
         const receipt = await tx.wait();
-        console.log("   ✅ Transaction confirmée dans le bloc:", receipt?.blockNumber);
+        console.log("   ✅ Transaction confirmed in block:", receipt?.blockNumber);
         console.log("");
 
-        // verify que l'EntryPoint est bien deployed
         const newCode = await provider.getCode(ENTRY_POINT_V07_ADDRESS);
         if (newCode && newCode !== "0x" && newCode.length > 100) {
-            console.log("✅ EntryPoint v0.7 deployed avec success!");
-            console.log("   Adresse:", ENTRY_POINT_V07_ADDRESS);
+            console.log("✅ EntryPoint v0.7 deployed successfully!");
+            console.log("   Address:", ENTRY_POINT_V07_ADDRESS);
             console.log("   Code length:", newCode.length, "bytes");
         } else {
-            console.error("❌ EntryPoint v0.7 non found après DEPLOYMENT");
-            console.error("   Vérifiez la transaction:", tx.hash);
+            console.error("❌ EntryPoint v0.7 not found after deployment");
+            console.error("   Check transaction:", tx.hash);
             process.exit(1);
         }
 
         updateConfig(ENTRY_POINT_V07_ADDRESS);
     } catch (error: any) {
-        console.error("❌ error lors du DEPLOYMENT:", error.message);
+        console.error("❌ Error during deployment:", error.message);
         if (error.data) {
             console.error("   Error data:", error.data);
         }
@@ -116,7 +115,7 @@ function updateConfig(entryPointAddress: string) {
         const configContent = fs.readFileSync(bundlerConfigPath, "utf-8");
         bundlerConfig = JSON.parse(configContent);
     } catch (error: any) {
-        console.warn("⚠️  unable de lire la configuration du bundler:", error.message);
+        console.warn("⚠️  Unable to read bundler configuration:", error.message);
     }
 
     bundlerConfig.entrypoints = entryPointAddress;
@@ -130,10 +129,9 @@ function updateConfig(entryPointAddress: string) {
         console.log("✅ Bundler config updated:", bundlerConfigPath);
         console.log(`   "entrypoints": "${entryPointAddress}"`);
     } catch (error: any) {
-        console.error("❌ error lors de l'écriture de config.local.json:", error.message);
+        console.error("❌ Error writing config.local.json:", error.message);
     }
 
-    // Mettre à jour .env.local
     const envPath = path.join(__dirname, "../../../.env.local");
     try {
         let envContent = "";
@@ -142,7 +140,7 @@ function updateConfig(entryPointAddress: string) {
         }
 
         const line = `NEXT_PUBLIC_ENTRY_POINT=${entryPointAddress}`;
-        if (envContent.increaddes("NEXT_PUBLIC_ENTRY_POINT=")) {
+        if (envContent.includes("NEXT_PUBLIC_ENTRY_POINT=")) {
             envContent = envContent.replace(/^NEXT_PUBLIC_ENTRY_POINT=.*$/m, line);
         } else {
             envContent = envContent.trimEnd();
@@ -152,11 +150,11 @@ function updateConfig(entryPointAddress: string) {
         fs.writeFileSync(envPath, envContent, "utf-8");
         console.log("✅ .env.local updated:", envPath);
     } catch (error: any) {
-        console.error("❌ error lors de la mise à jour de .env.local:", error.message);
+        console.error("❌ Error updating .env.local:", error.message);
     }
 
     console.log("");
-    console.log("⚠️  IMPORTANT: Redémarrez le bundler pour qu'il utilise cette nouvelle adresse!");
+    console.log("⚠️  IMPORTANT: Restart bundler to use this new address!");
     console.log("");
 }
 

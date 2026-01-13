@@ -20,47 +20,44 @@ async function main() {
     // Adresse déterministe standard pour EntryPoint v0.7
     const ENTRY_POINT_V07_DETERMINISTIC = "0x0000000071727De22E5E9d8BAf0edAc6f37da032";
     
-    console.log("📋 VERIFICATION de l'EntryPoint v0.7 déterministe...");
-    console.log("   Adresse:", ENTRY_POINT_V07_DETERMINISTIC);
+    console.log("📋 Verifying deterministic EntryPoint v0.7...");
+    console.log("   Address:", ENTRY_POINT_V07_DETERMINISTIC);
     
     const existingCode = await provider.getCode(ENTRY_POINT_V07_DETERMINISTIC);
     
     if (existingCode && existingCode !== "0x" && existingCode.length > 100) {
-        console.log("   ✅ EntryPoint v0.7 déjà deployed à cette adresse!");
+        console.log("   ✅ EntryPoint v0.7 already deployed at this address!");
         console.log("   Code length:", existingCode.length, "bytes");
         
-        // verify que c'est bien un EntryPoint v0.7
         try {
             const entryPointAbi = ["function depositTo(address) payable", "function balanceOf(address) view returns (uint256)"];
             const entryPoint = new ethers.Contract(ENTRY_POINT_V07_DETERMINISTIC, entryPointAbi, provider);
             const testBalance = await entryPoint.balanceOf(ethers.ZeroAddress);
-            console.log("   ✅ VERIFICATION: EntryPoint répond correctement");
+            console.log("   ✅ Verification: EntryPoint responds correctly");
         } catch (error: any) {
-            console.error("   ❌ L'adresse n'est pas un EntryPoint valide:", error.message);
+            console.error("   ❌ Address is not a valid EntryPoint:", error.message);
             process.exit(1);
         }
         
         console.log("");
-        console.log("💡 Utilisez cette adresse:", ENTRY_POINT_V07_DETERMINISTIC);
+        console.log("💡 Use this address:", ENTRY_POINT_V07_DETERMINISTIC);
         
-        // Mettre à jour la configuration
         updateConfig(ENTRY_POINT_V07_DETERMINISTIC);
         return;
     }
 
-    console.log("   ⚠️  EntryPoint v0.7 non found à l'adresse déterministe");
+    console.log("   ⚠️  EntryPoint v0.7 not found at deterministic address");
     console.log("");
-    console.log("💡 Soreadtion: Utilisez le script du bundler pour déployer EntryPoint v0.7:");
+    console.log("💡 Solution: Use bundler script to deploy EntryPoint v0.7:");
     console.log("   cd bundler-alto && pnpm install && pnpm build");
     console.log("   cd scripts/localDeployer && pnpm tsx index.ts");
     console.log("");
-    console.log("   OU utilisez directement l'adresse standard qui devrait être deployede");
-    console.log("   sur la preadpart des réseaux de test: 0x0000000071727De22E5E9d8BAf0edAc6f37da032");
+    console.log("   OR use the standard address directly which should be deployed");
+    console.log("   on most test networks: 0x0000000071727De22E5E9d8BAf0edAc6f37da032");
     console.log("");
     
-    // Mettre à jour quand même avec l'adresse déterministe (le bundler peut la déployer)
     updateConfig(ENTRY_POINT_V07_DETERMINISTIC);
-    console.log("⚠️  La configuration a été mise à jour, mais l'EntryPoint doit être deployed!");
+    console.log("⚠️  Configuration has been updated, but EntryPoint must be deployed!");
 }
 
 function updateConfig(entryPointAddress: string) {

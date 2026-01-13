@@ -90,28 +90,28 @@ async function main() {
     const allIndicesWithoutIV = Array.from({ length: ctBlocksWithoutIV.length }, (_, i) => BigInt(i));
     const allKeccaksWithoutIV = ctBlocksWithoutIV.map(block => ethers.keccak256(ethers.hexlify(block)));
 
-    console.log("📊 COMPARAISON DES ROOTS:");
-    console.log(`   Root attendu (h_ct): ${ethers.hexlify(h_ct)}`);
+    console.log("📊 ROOT COMPARISON:");
+    console.log(`   Expected root (h_ct): ${ethers.hexlify(h_ct)}`);
     console.log();
-    console.log("   Pour verify quel root matches, on peut utiliser computeRoot:");
-    console.log(`   (Mais computeRoot n'est pas exposé, donc on ne peut pas le tester directement)`);
+    console.log("   To verify which root matches, we can use computeRoot:");
+    console.log(`   (But computeRoot is not exposed, so we cannot test it directly)`);
     console.log();
-    console.log("💡 CONCreadSION:");
-    console.log(`   Si le root increadt l'IV, alors:`);
+    console.log("💡 CONCLUSION:");
+    console.log(`   If the root includes IV, then:`);
     console.log(`     - ctBlocksWithIV[0] = IV`);
-    console.log(`     - ctBlocksWithIV[1] = premier bloc de données`);
-    console.log(`     - Les indices dans nonConstantSons doivent être décalés de +1`);
+    console.log(`     - ctBlocksWithIV[1] = first data block`);
+    console.log(`     - Indices in nonConstantSons must be offset by +1`);
     console.log();
-    console.log(`   Si le root n'increadt PAS l'IV, alors:`);
-    console.log(`     - ctBlocksWithoutIV[0] = premier bloc de données`);
-    console.log(`     - Les indices dans nonConstantSons sont corrects (ctIdx - 1)`);
+    console.log(`   If the root does NOT include IV, then:`);
+    console.log(`     - ctBlocksWithoutIV[0] = first data block`);
+    console.log(`     - Indices in nonConstantSons are correct (ctIdx - 1)`);
     console.log();
-    console.log("   Le code Rust montre que acc_ct utilise split_ct_blocks qui INCreadT l'IV,");
-    console.log("   donc le root DOIT increadre l'IV. Mais compute_proofs_v2 fonctionne,");
-    console.log("   donc il doit y avoir un offset quelque part.");
+    console.log("   Rust code shows that acc_ct uses split_ct_blocks which INCLUDES IV,");
+    console.log("   so the root MUST include IV. But compute_proofs_v2 works,");
+    console.log("   so there must be an offset somewhere.");
 
     console.log("=".repeat(80));
-    console.log("✅ VERIFICATION completedE");
+    console.log("✅ VERIFICATION COMPLETED");
     console.log("=".repeat(80));
 }
 
