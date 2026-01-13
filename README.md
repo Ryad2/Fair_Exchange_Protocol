@@ -1,140 +1,153 @@
 # SOX Implementation
 
-Implémentation complète du protocole SOX (Secure Optimistic Exchange) avec support ERC-4337.
+Complete implementation of the SOX (Secure Optimistic Exchange) protocol with ERC-4337 support.
 
-## 🚀 Démarrage rapide
+## 🚀 Quick Start
 
-### Installation automatique
+### Automatic Installation
 
 ```bash
-# 1. Installer toutes les dépendances
+# 1. Install all dependencies
 ./install.sh
 
-# 2. Dans Terminal 1: Lancer Hardhat node
+# 2. In Terminal 1: Start Hardhat node
 cd src/hardhat && npx hardhat node
 
-# 3. Dans Terminal 2: Déployer les contrats
+# 3. In Terminal 2: Deploy contracts
 ./deploy-all.sh
 
-# 4. Dans Terminal 3: Lancer le bundler
+# 4. In Terminal 3: Start the bundler
 ./run-alto.sh
 
-# 5. Dans Terminal 4: Lancer Next.js
+# 5. In Terminal 4: Start Next.js
 npm run dev
+
+# 6. In Terminal 5 (Optional): Start Electron Desktop
+# ⚠️ IMPORTANT: Next.js must be running BEFORE Electron
+cd desktop && npm start
 ```
 
-### Accès
+### Access
 
-- **Application Web**: http://localhost:3000
+- **Web Application**: http://localhost:3000 (required for Electron)
+- **Desktop Application**: Electron (`cd desktop && npm start` after starting Next.js)
 - **Bundler RPC**: http://localhost:4337/rpc
 - **Hardhat RPC**: http://localhost:8545
 
 ## 📚 Documentation
 
-### Guide d'installation complet
+### Complete Installation Guide
 
-Pour un guide détaillé avec toutes les étapes, configurations et résolution de problèmes, consultez :
+For a detailed guide with all steps, configurations, and troubleshooting, see:
 
 **[📖 GUIDE_INSTALLATION_COMPLET.md](./GUIDE_INSTALLATION_COMPLET.md)**
 
-Ce guide couvre :
-- ✅ Installation complète depuis zéro
-- ✅ Configuration de tous les composants
-- ✅ Déploiement des contrats
-- ✅ Résolution de tous les problèmes courants
-- ✅ Compatibilité macOS, Linux et Windows (WSL)
+This guide covers:
+- ✅ Complete installation from scratch
+- ✅ Configuration of all components
+- ✅ Contract deployment
+- ✅ Resolution of all common problems
+- ✅ Compatibility with macOS, Linux, and Windows (WSL)
 
-### Guide rapide
+### Quick Start Guide
 
-Pour un démarrage rapide, consultez :
+For a quick start, see:
 
 **[⚡ QUICK_START.md](./QUICK_START.md)**
 
-## 🔧 Prérequis
+## 🔧 Prerequisites
 
 - **Node.js** >= 22.13.1
-- **Rust/Cargo** (pour compiler le binaire WASM)
-- **sqlite3** (pour la base de données)
-- **pnpm** (installé automatiquement par `install.sh`)
-- **Foundry (forge)** (installé automatiquement pour Alto bundler)
+- **Rust/Cargo** (to compile the WASM binary)
+- **sqlite3** (for the database)
+- **pnpm** (automatically installed by `install.sh`)
+- **Foundry (forge)** (automatically installed for Alto bundler)
 
 ## 📦 Architecture
 
-Le projet est composé de plusieurs composants :
+The project consists of several components:
 
-- **Frontend Next.js** : Interface web (`src/app/`)
-- **Hardhat** : Déploiement et tests des contrats (`src/hardhat/`)
-- **Alto Bundler** : Bundler ERC-4337 (`bundler-alto/`)
-- **Rust Binary** : Précomputation native (`src/wasm/`)
-- **Electron Desktop** : Application desktop (optionnelle, `desktop/`)
+- **Next.js Frontend** : Web interface (`src/app/`)
+- **Hardhat** : Contract deployment and testing (`src/hardhat/`)
+- **Alto Bundler** : ERC-4337 bundler (`bundler-alto/`)
+- **Rust Binary** : Native precomputation (`src/wasm/`)
+- **Electron Desktop** : Desktop application (optional, `desktop/`)
+  - Loads the Next.js application in an Electron window
+  - Allows execution of native Rust precompute locally
+  - Requires Next.js to be running on `http://localhost:3000`
 
-## 🛠️ Scripts disponibles
+## 🛠️ Available Scripts
 
 ### Installation
 
 ```bash
-./install.sh              # Installation complète automatique
-./install-alto.sh          # Installation du bundler Alto uniquement
+./install.sh              # Complete automatic installation
+./install-alto.sh          # Install Alto bundler only
 ```
 
-### Déploiement
+### Deployment
 
 ```bash
-./deploy-all.sh           # Déploiement complet des contrats
-./deploy-contracts.sh     # Alternative de déploiement
+./deploy-all.sh           # Complete contract deployment
+./deploy-contracts.sh     # Alternative deployment
 ```
 
-### Lancement
+### Launch
 
 ```bash
-./run-alto.sh             # Lancer le bundler Alto
-npm run dev               # Lancer Next.js
-cd desktop && npm start   # Lancer Electron (optionnel)
+./run-alto.sh             # Start Alto bundler
+npm run dev               # Start Next.js (web application)
+cd desktop && npm start   # Start Electron (optional desktop application)
 ```
 
-## 🔍 Résolution de problèmes
+**⚠️ IMPORTANT - Launch Order:**
+1. **First**: Run `npm run dev` (Next.js must be active on `http://localhost:3000`)
+2. **Then**: Launch Electron with `cd desktop && npm start`
 
-### Problèmes courants
+Electron loads the Next.js application in an Electron window, so Next.js must be started first.
 
-- **"Module not found: deployed-contracts.json"** → Voir [Guide Complet - Problème 3a](./GUIDE_INSTALLATION_COMPLET.md#problème-3a-module-not-found-cant-resolve-deployed-contractsjson)
-- **"Failed to fetch"** → Vérifiez que `enable-cors: true` est dans `bundler-alto/scripts/config.local.json`
-- **"No deployed library addresses found"** → Relancez `./deploy-all.sh`
-- **"spawn precontract_cli ENOENT"** → Compilez le binaire Rust : `cd src/wasm && cargo build --release --bin precontract_cli`
+## 🔍 Troubleshooting
 
-Pour la liste complète des problèmes et solutions, consultez le [Guide d'Installation Complet](./GUIDE_INSTALLATION_COMPLET.md#-résolution-des-problèmes).
+### Common Issues
 
-## 📝 Structure du projet
+- **"Module not found: deployed-contracts.json"** → See [Complete Guide - Issue 3a](./GUIDE_INSTALLATION_COMPLET.md#problème-3a-module-not-found-cant-resolve-deployed-contractsjson)
+- **"Failed to fetch"** → Check that `enable-cors: true` is in `bundler-alto/scripts/config.local.json`
+- **"No deployed library addresses found"** → Run `./deploy-all.sh` again to deploy contracts
+- **"spawn precontract_cli ENOENT"** → Compile the Rust binary: `cd src/wasm && cargo build --release --bin precontract_cli`
+
+For the complete list of issues and solutions, see the [Complete Installation Guide](./GUIDE_INSTALLATION_COMPLET.md#-résolution-des-problèmes).
+
+## 📝 Project Structure
 
 ```
 sox_implementation/
 ├── src/
-│   ├── app/              # Application Next.js
-│   ├── hardhat/          # Contrats Solidity et scripts de déploiement
-│   └── wasm/             # Binaire Rust pour précomputation
-├── bundler-alto/         # Bundler ERC-4337 (Pimlico Alto)
-├── desktop/              # Application Electron (optionnelle)
-├── install.sh            # Script d'installation automatique
-├── deploy-all.sh         # Script de déploiement des contrats
-├── run-alto.sh           # Script pour lancer le bundler
-└── GUIDE_INSTALLATION_COMPLET.md  # Guide d'installation détaillé
+│   ├── app/              # Next.js application
+│   ├── hardhat/          # Solidity contracts and deployment scripts
+│   └── wasm/             # Rust binary for precomputation
+├── bundler-alto/         # ERC-4337 bundler (Pimlico Alto)
+├── desktop/              # Electron application (optional)
+├── install.sh            # Automatic installation script
+├── deploy-all.sh         # Contract deployment script
+├── run-alto.sh           # Script to start the bundler
+└── GUIDE_INSTALLATION_COMPLET.md  # Detailed installation guide
 ```
 
-## 🔗 Liens utiles
+## 🔗 Useful Links
 
-- [Guide d'Installation Complet](./GUIDE_INSTALLATION_COMPLET.md)
+- [Complete Installation Guide](./GUIDE_INSTALLATION_COMPLET.md)
 - [Quick Start](./QUICK_START.md)
-- [Documentation ERC-4337](https://eips.ethereum.org/EIPS/eip-4337)
+- [ERC-4337 Documentation](https://eips.ethereum.org/EIPS/eip-4337)
 - [Pimlico Alto Bundler](https://docs.pimlico.io/infra/bundler)
 
-## 📄 Licence
+## 📄 License
 
-[À compléter selon la licence du projet]
+[To be completed according to project license]
 
-## 👥 Contributeurs
+## 👥 Contributors
 
-[À compléter]
+[To be completed]
 
 ---
 
-**Pour toute question ou problème, consultez le [Guide d'Installation Complet](./GUIDE_INSTALLATION_COMPLET.md).**
-
+**For any questions or issues, see the [Complete Installation Guide](./GUIDE_INSTALLATION_COMPLET.md).**
