@@ -239,16 +239,6 @@ export default function DisputeListView() {
     return (
         <div className="bg-gray-300 p-4 rounded w-1/2 overflow-auto">
             <h2 className="text-lg font-semibold mb-4">Disputes</h2>
-            <div className="mb-4">
-                <FormSelect
-                    id="dispute-public-key"
-                    value={publicKey}
-                    onChange={setPublicKey}
-                    options={ALL_PUBLIC_KEYS}
-                >
-                    Clé publique pour simulation:
-                </FormSelect>
-            </div>
             <table className="w-full table-fixed border-collapse">
                 <thead>
                     <tr className="border-b border-black text-left font-medium">
