@@ -45,7 +45,7 @@ async function main() {
     await entryPoint.waitForDeployment();
 
     const entryPointAddress = await entryPoint.getAddress();
-    console.log("   ✅ EntryPoint v0.7 deployed à:", entryPointAddress);
+    console.log("   ✅ EntryPoint v0.7 deployed at:", entryPointAddress);
     console.log("");
 
     // verify que c'est bien un EntryPoint v0.7 en testant une fonction
@@ -85,7 +85,7 @@ async function main() {
         console.log("✅ Bundler config updated:", bundlerConfigPath);
         console.log(`   "entrypoints": "${entryPointAddress}"`);
     } catch (error: any) {
-        console.error("❌ error lors de l'écriture de config.local.json:", error.message);
+        console.error("❌ Error writing config.local.json:", error.message);
     }
 
     // Mettre à jour .env.local
@@ -107,7 +107,7 @@ async function main() {
         fs.writeFileSync(envPath, envContent, "utf-8");
         console.log("✅ .env.local updated:", envPath);
     } catch (error: any) {
-        console.error("❌ error lors de la mise à jour de .env.local:", error.message);
+        console.error("❌ Error updating .env.local:", error.message);
     }
 
     console.log("");
@@ -115,7 +115,7 @@ async function main() {
     console.log("✅ DEPLOYMENT completed");
     console.log("=".repeat(80));
     console.log("");
-    console.log("⚠️  IMPORTANT: Redémarrez le bundler pour qu'il utilise cette nouvelle adresse!");
+    console.log("⚠️  IMPORTANT: Restart bundler to use this new address!");
     console.log("");
 }
 

@@ -86,7 +86,7 @@ function updateConfig(entryPointAddress: string) {
         console.log("✅ Bundler config updated:", bundlerConfigPath);
         console.log(`   "entrypoints": "${entryPointAddress}"`);
     } catch (error: any) {
-        console.error("❌ error lors de l'écriture de config.local.json:", error.message);
+        console.error("❌ Error writing config.local.json:", error.message);
     }
 
     // Mettre à jour .env.local
@@ -108,7 +108,7 @@ function updateConfig(entryPointAddress: string) {
         fs.writeFileSync(envPath, envContent, "utf-8");
         console.log("✅ .env.local updated:", envPath);
     } catch (error: any) {
-        console.error("❌ error lors de la mise à jour de .env.local:", error.message);
+        console.error("❌ Error updating .env.local:", error.message);
     }
 }
 
