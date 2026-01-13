@@ -57,24 +57,24 @@ function formatDisputeError(contract: Contract, error: any): string {
         return hint ? `${hint} (${errorName})` : `Error: ${errorName}`;
     }
 
-    // Essayer plusieurs sources pour le message d'erreur
+    // Try multiple sources for error message
     let errorMessage = error?.shortMessage || error?.reason || error?.message;
     
-    // Si pas de message, essayer de décoder les données
+    // If no message, try to decode data
     if (!errorMessage || errorMessage === "Error") {
         const data = error?.data || error?.error?.data;
         if (data) {
-            console.error("🔍 Données d'erreur:", data);
-            // Si c'est un hex string, essayer de décoder
+            console.error("🔍 Error data:", data);
+            // If it's a hex string, try to decode
             if (typeof data === 'string' && data.startsWith('0x')) {
-                // C'est probablement un selector d'erreur custom
+                // Probably a custom error selector
                 const selector = data.slice(0, 10).toLowerCase();
-                console.error("🔍 Selector d'erreur:", selector);
+                console.error("🔍 Error selector:", selector);
                 // TransactionReverted() = 0x9167c27a
                 if (selector === '0x9167c27a') {
-                    errorMessage = "Transaction rejetée: L'appel interne au contrat a échoué. Cela peut être dû à une vérification de preuve qui a échoué, une vérification d'état invalide, ou une erreur dans les données fournies.";
+                    errorMessage = "Transaction reverted: Internal contract call failed. This may be due to a failed proof verification, invalid state check, or error in provided data.";
                 } else {
-                    errorMessage = `Erreur du contrat (selector: ${selector})`;
+                    errorMessage = `Contract error (selector: ${selector})`;
                 }
             } else {
                 errorMessage = String(data);
@@ -82,7 +82,7 @@ function formatDisputeError(contract: Contract, error: any): string {
         }
     }
     
-    // Si toujours pas de message, utiliser toString ou une description générique
+    // If still no message, use toString or generic description
     if (!errorMessage || errorMessage === "Error") {
         if (typeof error?.toString === 'function') {
             const errorStr = error.toString();
@@ -93,7 +93,7 @@ function formatDisputeError(contract: Contract, error: any): string {
     }
     
     if (!errorMessage || errorMessage === "Error") {
-        errorMessage = `Erreur inconnue lors de la pré-vérification. Type: ${typeof error}, Constructor: ${error?.constructor?.name || 'N/A'}`;
+        errorMessage = `Unknown error during pre-verification. Type: ${typeof error}, Constructor: ${error?.constructor?.name || 'N/A'}`;
     }
     
     return errorMessage;
@@ -111,48 +111,48 @@ async function preflightDisputeCall(
     }
     const wallet = new Wallet(privateKey, PROVIDER);
     try {
-        console.log(`🔍 Pré-vérification: ${method} avec ${args.length} arguments`);
+        console.log(`🔍 Pre-verification: ${method} with ${args.length} arguments`);
         const connected = contract.connect(wallet) as any;
         await connected[method].staticCall(...args);
-        console.log(`✅ Pré-vérification réussie pour ${method}`);
+        console.log(`✅ Pre-verification successful for ${method}`);
     } catch (error: any) {
-        console.error(`❌ Pré-vérification échouée pour ${method}:`, error);
+        console.error(`❌ Pre-verification failed for ${method}:`, error);
         
-        // Essayer plusieurs façons d'extraire le message d'erreur
-        // Avec ethers.js v6, les erreurs peuvent avoir une structure différente
+        // Try multiple ways to extract error message
+        // With ethers.js v6, errors can have a different structure
         let errorMessage: string | undefined;
         
-        // 1. Essayer les propriétés standard
+        // 1. Try standard properties
         errorMessage = error?.message || error?.reason || error?.shortMessage;
         
-        // 2. Essayer error.error (erreurs imbriquées)
+        // 2. Try error.error (nested errors)
         if (!errorMessage && error?.error) {
             errorMessage = error.error.message || error.error.reason || error.error.shortMessage || error.error.data;
         }
         
-        // 3. Essayer error.cause (erreurs en chaîne)
+        // 3. Try error.cause (chained errors)
         if (!errorMessage && error?.cause) {
             errorMessage = error.cause.message || error.cause.reason || String(error.cause);
         }
         
-        // 4. Essayer de décoder error.data (données hex)
+        // 4. Try to decode error.data (hex data)
         if (!errorMessage) {
             const data = error?.data || error?.error?.data || error?.cause?.data;
             if (data) {
                 if (typeof data === 'string' && data.startsWith('0x')) {
                     const selector = data.slice(0, 10).toLowerCase();
                     if (selector === '0x9167c27a') {
-                        errorMessage = "Transaction rejetée: L'appel interne au contrat a échoué (TransactionReverted). Cela peut être dû à une vérification de preuve qui a échoué, une vérification d'état invalide, ou une erreur dans les données fournies.";
+                        errorMessage = "Transaction reverted: Internal contract call failed (TransactionReverted). This may be due to a failed proof verification, invalid state check, or error in provided data.";
                     } else if (selector === '0x08c379a0') {
-                        // Error(string) - essayer de décoder
+                        // Error(string) - try to decode
                         try {
                             const decoded = contract.interface.decodeErrorResult("Error(string)", data);
-                            errorMessage = decoded[0] || `Erreur du contrat (Error string)`;
+                            errorMessage = decoded[0] || `Contract error (Error string)`;
                         } catch {
-                            errorMessage = `Erreur du contrat (selector: ${selector})`;
+                            errorMessage = `Contract error (selector: ${selector})`;
                         }
                     } else {
-                        errorMessage = `Erreur du contrat (selector: ${selector})`;
+                        errorMessage = `Contract error (selector: ${selector})`;
                     }
                 } else if (typeof data === 'string') {
                     errorMessage = data;
@@ -162,7 +162,7 @@ async function preflightDisputeCall(
             }
         }
         
-        // 5. Essayer toString()
+        // 5. Try toString()
         if (!errorMessage) {
             try {
                 const errorStr = String(error);
@@ -174,18 +174,15 @@ async function preflightDisputeCall(
             }
         }
         
-        // 6. Message par défaut
+        // 6. Default message
         if (!errorMessage || errorMessage.trim() === '') {
-            errorMessage = `Erreur lors de la pré-vérification de ${method}. Le contrat a rejeté la transaction. Vérifiez que le contrat est dans le bon état et que les données sont correctes.`;
+            errorMessage = `Error during pre-verification of ${method}. Contract rejected the transaction. Verify that the contract is in the correct state and data is correct.`;
         }
         
         throw new Error(errorMessage);
     }
 }
 
-/**
- * Gets the current state of the dispute contract.
- */
 export async function getDisputeState(contractAddr: string) {
     if (!isAddress(contractAddr)) return;
 
@@ -193,9 +190,6 @@ export async function getDisputeState(contractAddr: string) {
     return await contract.currState().catch(() => {});
 }
 
-/**
- * Gets the current challenge value from the dispute contract.
- */
 export async function getChallenge(contractAddr: string) {
     if (!isAddress(contractAddr)) return;
 
@@ -214,21 +208,16 @@ async function sendDisputeUserOp(
     }
 
     const contract = new Contract(contractAddr, abi, PROVIDER);
-    // Encoder l'appel à execute() sur le contrat dispute, comme dans sendKey
-    // Le contrat dispute est un compte abstrait ERC-4337, donc on appelle execute(self, 0, callData)
     const executeData = contract.interface.encodeFunctionData("execute", [
-        contractAddr, // target: le contrat dispute lui-même
-        0,            // value: 0 (pas d'ETH envoyé)
-        callData,     // data: les données de la fonction à appeler (respondChallenge, giveOpinion, submitCommitment, etc.)
+        contractAddr,
+        0,
+        callData,
     ]);
 
-    // Utiliser ERC-4337 classique (comme sendKey), pas EIP-7702
-    // Le contrat dispute utilise buyerSigner/vendorSigner pour valider les signatures
-    // Le sender est le contrat dispute (compte abstrait ERC-4337)
     return sendUserOperation({
-        sender: contractAddr, // Le contrat dispute est le compte abstrait ERC-4337
+        sender: contractAddr,
         callData: executeData,
-        signerPrivateKey: privateKey, // La clé privée correspondant à buyerSigner ou vendorSigner
+        signerPrivateKey: privateKey,
     });
 }
 

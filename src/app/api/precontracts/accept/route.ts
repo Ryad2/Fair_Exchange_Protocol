@@ -1,7 +1,7 @@
 import db from "../../../lib/sqlite";
 import { NextResponse } from "next/server";
 
-// TODO add signature support
+
 export async function POST(req: Request) {
     const data = await req.json();
     const stmt = db.prepare(`UPDATE contracts SET accepted = 1 WHERE id = ?`);

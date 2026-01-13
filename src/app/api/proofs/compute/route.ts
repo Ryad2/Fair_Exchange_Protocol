@@ -22,32 +22,29 @@ export async function POST(req: Request) {
 
         if (!state || contractId === undefined || !num_blocks || !num_gates) {
             return NextResponse.json(
-                { error: "Les champs 'state', 'contractId', 'num_blocks' et 'num_gates' sont requis" },
+                { error: "Fields 'state', 'contractId', 'num_blocks' and 'num_gates' are required" },
                 { status: 400 }
             );
         }
 
-        // Pour l'instant, on ne supporte que l'état 4 (WaitVendorDataRight)
+
         if (state !== 4) {
             return NextResponse.json(
-                { error: `État ${state} non supporté. Seul l'état 4 (WaitVendorDataRight) est supporté pour l'instant.` },
+                { error: `State ${state} not supported. Only state 4 (WaitVendorDataRight) is supported for now.` },
                 { status: 400 }
             );
         }
 
-        // Récupérer le circuit évalué depuis le serveur
-        // Le circuit évalué devrait être généré côté client et envoyé, ou stocké sur le serveur
-        // Pour l'instant, on va demander au client de l'envoyer
+        //
         const { evaluated_circuit_hex } = await req.json();
         
         if (!evaluated_circuit_hex) {
             return NextResponse.json(
-                { error: "Le champ 'evaluated_circuit_hex' est requis" },
+                { error: "Field 'evaluated_circuit_hex' is required" },
                 { status: 400 }
             );
         }
 
-        // Créer un fichier temporaire pour le circuit évalué
         const tempDir = path.join(process.cwd(), "tmp");
         if (!fs.existsSync(tempDir)) {
             fs.mkdirSync(tempDir, { recursive: true });
@@ -57,7 +54,6 @@ export async function POST(req: Request) {
         const evaluated_circuit_bytes = Buffer.from(evaluated_circuit_hex, "hex");
         fs.writeFileSync(tempEvaluatedCircuitPath, evaluated_circuit_bytes);
 
-        // Appeler le binaire CLI
         const { stdout } = await execFileAsync(COMPUTE_PROOFS_CLI_PATH, [
             state.toString(),
             tempEvaluatedCircuitPath,
@@ -65,7 +61,6 @@ export async function POST(req: Request) {
             num_gates.toString(),
         ]);
 
-        // Nettoyer le fichier temporaire
         fs.unlinkSync(tempEvaluatedCircuitPath);
 
         let parsed: any;
@@ -73,14 +68,14 @@ export async function POST(req: Request) {
             parsed = JSON.parse(stdout.toString());
         } catch (e: any) {
             console.error(
-                "Erreur de parsing JSON depuis compute_proofs_cli:",
+                "JSON parsing error from compute_proofs_cli:",
                 e,
                 stdout.toString()
             );
             return NextResponse.json(
                 {
                     error:
-                        "Erreur serveur: sortie invalide du binaire de calcul de preuves",
+                        "Server error: invalid output from proof computation binary",
                 },
                 { status: 500 }
             );
@@ -88,11 +83,10 @@ export async function POST(req: Request) {
 
         return NextResponse.json(parsed);
     } catch (error: any) {
-        console.error("Erreur dans POST /api/proofs/compute:", error);
+        console.error("Error in POST /api/proofs/compute:", error);
         return NextResponse.json(
-            { error: `Erreur serveur: ${error.message || error}` },
+            { error: `Server error: ${error.message || error}` },
             { status: 500 }
         );
     }
 }
-

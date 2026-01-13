@@ -8,18 +8,16 @@ const dbDir = path.dirname(dbPath);
 let db: Database.Database;
 
 try {
-    // Créer le répertoire db s'il n'existe pas
     if (!fs.existsSync(dbDir)) {
         fs.mkdirSync(dbDir, { recursive: true });
     }
 
     db = new Database(dbPath);
 } catch (error: any) {
-    console.error("❌ Erreur fatale lors de l'initialisation de la base de données:", error);
+    console.error("❌ Fatal error initializing database:", error);
     throw error;
 }
 
-// Vérifier si les tables existent, sinon les créer
 const tableExists = (tableName: string): boolean => {
     try {
         const result = db.prepare(`
@@ -28,12 +26,11 @@ const tableExists = (tableName: string): boolean => {
         `).get(tableName);
         return !!result;
     } catch (error: any) {
-        console.error(`Erreur lors de la vérification de l'existence de la table ${tableName}:`, error);
+        console.error(`Error checking if table ${tableName} exists:`, error);
         return false;
     }
 };
 
-// Initialiser les tables si elles n'existent pas
 try {
     if (!tableExists("contracts")) {
         db.exec(`
@@ -59,11 +56,10 @@ try {
                 session_key_address TEXT
             )
         `);
-        console.log("✅ Table 'contracts' créée");
+        console.log("✅ Table 'contracts' created");
     }
 } catch (error: any) {
-    console.error("❌ Erreur lors de la création de la table 'contracts':", error);
-    // Ne pas throw ici, on continue quand même
+    console.error("❌ Error creating table 'contracts':", error);
 }
 
 try {
@@ -80,28 +76,24 @@ try {
                     ON DELETE CASCADE
             )
         `);
-        console.log("✅ Table 'disputes' créée");
+        console.log("✅ Table 'disputes' created");
     }
 } catch (error: any) {
-    console.error("❌ Erreur lors de la création de la table 'disputes':", error);
-    // Ne pas throw ici, on continue quand même
+    console.error("❌ Error creating table 'disputes':", error);
 }
 
-// Ajouter les colonnes session_key si elles n'existent pas déjà
 try {
     db.exec("ALTER TABLE contracts ADD COLUMN session_key_private TEXT");
 } catch (e: any) {
-    // Colonne existe déjà ou autre erreur
     if (!e.message?.includes("duplicate column name")) {
-        console.warn("Avertissement lors de l'ajout de session_key_private:", e.message);
+        console.warn("Warning adding session_key_private:", e.message);
     }
 }
 try {
     db.exec("ALTER TABLE contracts ADD COLUMN session_key_address TEXT");
 } catch (e: any) {
-    // Colonne existe déjà ou autre erreur
     if (!e.message?.includes("duplicate column name")) {
-        console.warn("Avertissement lors de l'ajout de session_key_address:", e.message);
+        console.warn("Warning adding session_key_address:", e.message);
     }
 }
 

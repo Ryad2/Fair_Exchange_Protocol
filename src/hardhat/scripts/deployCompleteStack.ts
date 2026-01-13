@@ -33,18 +33,6 @@ async function setStorage(
     }
 }
 
-/**
- * Complete and synchronized deployment script
- * 
- * This script deploys in order:
- * 1. All necessary libraries
- * 2. DisputeDeployer
- * 3. EntryPoint (for ERC-4337)
- * 4. Generates JSON files with correct addresses
- * 5. Updates bundler config
- * 6. Creates .env.local file with addresses
- */
-
 interface DeploymentAddresses {
     accumulatorVerifier: string;
     sha256Evaluator: string;

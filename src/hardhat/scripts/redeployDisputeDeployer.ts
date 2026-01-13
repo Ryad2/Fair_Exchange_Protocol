@@ -3,19 +3,6 @@ import { ethers } from "hardhat";
 import { writeFileSync, readFileSync, existsSync } from "fs";
 import { join } from "path";
 
-/**
- * Script to redeploy DisputeDeployer with the new DisputeSOXAccount bytecode.
- * 
- * IMPORTANT: After fixing DisputeSOXAccount, DisputeDeployer must be redeployed
- * because it contains the DisputeSOXAccount bytecode via "new DisputeSOXAccount(...)".
- * 
- * This script:
- * 1. Compiles contracts (to ensure DisputeSOXAccount is up to date)
- * 2. Deploys necessary libraries
- * 3. Deploys DisputeDeployer (which contains the new DisputeSOXAccount bytecode)
- * 4. Generates/updates JSON files for the application
- */
-
 async function main() {
     const { ethers } = hre;
     const [sponsor] = await ethers.getSigners();
@@ -23,12 +10,10 @@ async function main() {
     console.log("🔄 Redeploying DisputeDeployer with new bytecode...");
     console.log("=".repeat(80));
     
-    // STEP 1: Compilation
     console.log("\n📦 STEP 1: Compiling contracts...");
     await hre.run("compile");
     console.log("  ✅ Compilation completed\n");
     
-    // STEP 2: Deploy necessary libraries
     console.log("📦 STEP 2: Deploying libraries...");
     
     const AccumulatorVerifierFactory = await ethers.getContractFactory("AccumulatorVerifier");
@@ -49,7 +34,6 @@ async function main() {
     const commitmentOpenerAddr = await commitmentOpener.getAddress();
     console.log("  ✅ CommitmentOpener:", commitmentOpenerAddr);
     
-    // STEP 3: Deploy DisputeDeployer (CRITICAL)
     console.log("\n🚀 STEP 3: Deploying DisputeDeployer with new bytecode...");
     const DisputeDeployerFactory = await ethers.getContractFactory("DisputeDeployer", {
         libraries: {
@@ -64,11 +48,9 @@ async function main() {
     console.log("  ✅ DisputeDeployer deployed at:", disputeDeployerAddr);
     console.log("  ⚠️  IMPORTANT: This DisputeDeployer contains the NEW DisputeSOXAccount bytecode");
     
-    // STEP 4: Generate/update JSON files
     console.log("\n📄 STEP 4: Generating JSON files for the application...");
     const contractsDir = join(__dirname, "../../app/lib/blockchain/contracts/");
     
-    // Generate DisputeDeployer.json
     const DisputeDeployerArtifact = await hre.artifacts.readArtifact("DisputeDeployer");
     const disputeDeployerData = {
         abi: DisputeDeployerArtifact.abi,
@@ -80,7 +62,6 @@ async function main() {
     );
     console.log("  ✅ DisputeDeployer.json generated");
     
-    // Generate OptimisticSOXAccount.json with new DisputeDeployer linked
     const OptimisticSOXAccountFactory = await ethers.getContractFactory("OptimisticSOXAccount", {
         libraries: {
             DisputeDeployer: disputeDeployerAddr,
@@ -89,7 +70,7 @@ async function main() {
     const OptimisticSOXAccountArtifact = await hre.artifacts.readArtifact("OptimisticSOXAccount");
     const optimisticData = {
         abi: OptimisticSOXAccountArtifact.abi,
-        bytecode: OptimisticSOXAccountFactory.bytecode, // Linked bytecode with new DisputeDeployer
+        bytecode: OptimisticSOXAccountFactory.bytecode,
     };
     writeFileSync(
         join(contractsDir, "OptimisticSOXAccount.json"),
@@ -97,7 +78,6 @@ async function main() {
     );
     console.log("  ✅ OptimisticSOXAccount.json generated with new DisputeDeployer");
     
-    // STEP 5: Update deployed-contracts.json
     console.log("\n📝 STEP 5: Updating deployed-contracts.json...");
     const deployedContractsPath = join(__dirname, "../../../deployed-contracts.json");
     
@@ -111,7 +91,6 @@ async function main() {
         deployedContracts.addresses = {};
     }
     
-    // Update only DisputeDeployer (other libraries remain unchanged)
     deployedContracts.addresses.DisputeDeployer = disputeDeployerAddr;
     deployedContracts.network = hre.network.name;
     deployedContracts.chainId = Number(network.chainId);
