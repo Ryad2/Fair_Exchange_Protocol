@@ -6,7 +6,7 @@ import {EvaluatorSOX_V2} from "./EvaluatorSOX_V2.sol";
 import {CommitmentOpener} from "./CommitmentSOX.sol";
 import {OptimisticState, IOptimisticSOX} from "./OptimisticSOXAccount.sol";
 
-// PackedUserOperation structure used by EntryPoint v0.7/v0.8
+
 struct PackedUserOperation {
     address sender;
     uint256 nonce;
@@ -84,9 +84,6 @@ error BadNonce();
 error MismatchedBatchLengths();
 error InvalidGateBytes();
 error InvalidV2SonIndex();
-error CTIndexOutOfBounds();
-error AESKeyInvalid();
-error AESKeyMismatch();
 error TransactionReverted();
 
 contract DisputeSOXAccount {
