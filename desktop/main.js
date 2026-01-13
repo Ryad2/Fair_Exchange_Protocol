@@ -18,11 +18,11 @@ function createWindow() {
         },
     });
 
-    // Charger l'application web Next.js au lieu du fichier local
+    // Load Next.js web application instead of local file
     const nextjsUrl = process.env.NEXTJS_URL || 'http://localhost:3000';
     mainWindow.loadURL(nextjsUrl);
 
-    // Ouvrir les DevTools en développement
+    // Open DevTools in development
     if (process.env.NODE_ENV === 'development') {
         mainWindow.webContents.openDevTools();
     }
@@ -48,17 +48,17 @@ app.on('window-all-closed', () => {
     }
 });
 
-// Fonction pour exécuter le précompute
+// Function to run precompute
 async function runPrecompute(filePath) {
     return new Promise((resolve, reject) => {
-        // Chemin vers le binaire Rust precontract_cli
-        // Le binaire est compilé dans src/wasm/target/release/precontract_cli
+        // Path to Rust binary precontract_cli
+        // Binary is compiled in src/wasm/target/release/precontract_cli
         const cliPath = path.join(__dirname, '..', 'src', 'wasm', 'target', 'release', 'precontract_cli');
         
-        // Sur Windows, ajouter .exe
+        // On Windows, add .exe
         const command = process.platform === 'win32' ? cliPath + '.exe' : cliPath;
         
-        // Arguments: le binaire prend le fichier en premier argument (pas de --input)
+        // Arguments: binary takes file as first argument (no --input)
         const args = [filePath];
         
         const child = spawn(command, args, {
@@ -156,17 +156,17 @@ async function uploadCiphertext(filePath, contractId) {
     });
 }
 
-// Exposer l'API au preload
+// Expose API to preload
 const { ipcMain } = require('electron');
 
 ipcMain.handle('precompute', async () => {
     try {
         const result = await dialog.showOpenDialog(mainWindow, {
-            title: 'Choisir un fichier pour le précompute',
+            title: 'Select a file for precompute',
             properties: ['openFile'],
             filters: [
-                { name: 'Tous les fichiers', extensions: ['*'] },
-                { name: 'Fichiers binaires', extensions: ['bin', 'dat'] },
+                { name: 'All files', extensions: ['*'] },
+                { name: 'Binary files', extensions: ['bin', 'dat'] },
             ],
         });
 
@@ -180,7 +180,7 @@ ipcMain.handle('precompute', async () => {
         return precomputeResult;
     } catch (error) {
         return {
-            error: error.message || 'Erreur inconnue lors du précompute',
+            error: error.message || 'Unknown error during precompute',
         };
     }
 });
@@ -193,7 +193,7 @@ ipcMain.handle('uploadCiphertext', async (_event, payload) => {
     } catch (error) {
         return {
             success: false,
-            error: error.message || 'Erreur inconnue lors de l’upload',
+            error: error.message || 'Unknown error during upload',
         };
     }
 });

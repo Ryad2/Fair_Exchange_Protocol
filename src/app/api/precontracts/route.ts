@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import { Readable } from "node:stream";
 import { UPLOADS_PATH, WASM_PATH } from "../files/[id]/route";
 
-// Imports WASM conditionnels pour éviter les erreurs si le module n'est pas disponible
+
 let hex_to_bytes: any;
 let initSync: any;
 let bytes_to_hex: any;
@@ -18,8 +18,8 @@ try {
     initSync = cryptoLib.initSync;
     bytes_to_hex = cryptoLib.bytes_to_hex;
 } catch (wasmImportError: any) {
-    console.warn("⚠️ Impossible d'importer le module crypto_lib:", wasmImportError.message);
-    // Les fonctions seront undefined, on gérera ça dans le code
+    console.warn("⚠️ Unable to import crypto_lib module:", wasmImportError.message);
+    // Functions will be undefined, we'll handle this in the code
 }
 
 const execFileAsync = promisify(execFile);
@@ -103,7 +103,7 @@ async function parseMultipartRequest(
     }
 
     if (!tempFilePath) {
-        throw new Error("Fichier manquant");
+        throw new Error("Missing file");
     }
 
     return { fields, tempFilePath };
@@ -119,7 +119,7 @@ export async function GET(req: NextRequest) {
 
         return NextResponse.json(contracts);
     } catch (error: any) {
-        console.error("❌ Erreur dans GET /api/precontracts:", error);
+        console.error("❌ Error in GET /api/precontracts:", error);
         return NextResponse.json(
             { 
                 error: error instanceof Error ? error.message : String(error),
@@ -143,8 +143,8 @@ export async function PUT(req: Request) {
         try {
             db.prepare("SELECT 1").get();
         } catch (dbTestError: any) {
-            console.error("❌ La base de données n'est pas accessible:", dbTestError);
-            throw new Error(`Base de données inaccessible: ${dbTestError.message || dbTestError}`);
+            console.error("❌ Database is not accessible:", dbTestError);
+            throw new Error(`Database inaccessible: ${dbTestError.message || dbTestError}`);
         }
         
         // Détecter si c'est FormData ou JSON
@@ -156,7 +156,7 @@ export async function PUT(req: Request) {
         let preOut: any = null;
 
         if (contentType.includes("multipart/form-data")) {
-            // Mode web: streaming multipart pour éviter de charger le fichier en RAM
+            // Web mode: streaming multipart to avoid loading file into RAM
             let tempFilePath: string | null = null;
             try {
                 const parsed = await parseMultipartRequest(req, contentType);
@@ -178,9 +178,9 @@ export async function PUT(req: Request) {
                 if (tempFilePath && fs.existsSync(tempFilePath)) {
                     fs.unlinkSync(tempFilePath);
                 }
-                console.error("Erreur lors de l'exécution de precontract_cli:", error);
+                console.error("Error executing precontract_cli:", error);
                 return NextResponse.json(
-                    { error: `Erreur lors du calcul du precontract: ${error.message || error.toString()}` },
+                    { error: `Error calculating precontract: ${error.message || error.toString()}` },
                     { status: 500 }
                 );
             } finally {
@@ -189,52 +189,52 @@ export async function PUT(req: Request) {
                 }
             }
 
-            // Déplacer le fichier chiffré vers le répertoire d'uploads
+            // Move encrypted file to uploads directory
             if (preOut?.ciphertext_path && fs.existsSync(preOut.ciphertext_path)) {
                 filePath = preOut.ciphertext_path;
             }
         } else {
-            // Mode Electron: JSON avec preOut
+            // Electron mode: JSON with preOut
             try {
                 data = await req.json();
                 preOut = data.preOut;
             } catch (error: any) {
-                console.error("Erreur lors du parsing JSON de la requête:", error);
+                console.error("Error parsing JSON request:", error);
                 return NextResponse.json(
-                    { error: `Erreur lors du parsing de la requête JSON: ${error.message || error.toString()}` },
+                    { error: `Error parsing JSON request: ${error.message || error.toString()}` },
                     { status: 400 }
                 );
             }
         }
 
-        // Si les données viennent avec preOut (format Electron ou calculé côté serveur), les extraire
+        // If data comes with preOut (Electron format or server-side calculated), extract it
         let contractData: any;
         if (preOut) {
-            // Format Electron ou calculé côté serveur: preOut contient les résultats du calcul
+            // Electron format or server-side calculated: preOut contains calculation results
             console.log("🔍 Debug preOut:", JSON.stringify(preOut, null, 2));
             console.log("🔍 PreOut keys:", Object.keys(preOut || {}));
             let commitment = preOut.commitment_c_hex || preOut.commitment || "";
             console.log("🔍 Commitment trouvé:", commitment ? `${commitment.substring(0, 20)}...` : "VIDE");
             
-            // Si le commitment n'a pas le préfixe 0x, l'ajouter
+            // If commitment doesn't have 0x prefix, add it
             if (commitment && !commitment.startsWith("0x")) {
                 commitment = "0x" + commitment;
             }
             
-            // Vérifier que le commitment n'est pas vide et a la bonne longueur (32 bytes = 64 hex chars)
+            // Verify that commitment is not empty and has correct length (32 bytes = 64 hex chars)
             if (!commitment || commitment === "0x") {
                 console.error("❌ Commitment manquant dans preOut:", JSON.stringify(preOut, null, 2));
                 return NextResponse.json(
-                    { error: `Commitment manquant dans les données preOut. Champs disponibles: ${Object.keys(preOut).join(", ")}. Vérifiez que commitment_c_hex est présent dans la sortie du binaire.` },
+                    { error: `Commitment missing in preOut data. Available fields: ${Object.keys(preOut).join(", ")}. Verify that commitment_c_hex is present in binary output.` },
                     { status: 400 }
                 );
             }
             
-            // Vérifier la longueur (32 bytes = 64 hex chars après 0x)
+            // Verify length (32 bytes = 64 hex chars after 0x)
             if (commitment.length !== 66) { // 0x + 64 hex chars
-                console.error("❌ Commitment de longueur invalide:", commitment, "longueur:", commitment.length);
+                console.error("❌ Invalid commitment length:", commitment, "length:", commitment.length);
                 return NextResponse.json(
-                    { error: `Commitment de longueur invalide: ${commitment.length} caractères (attendu 66 avec 0x). Vérifiez que commitment_c_hex contient 32 bytes encodés en hex.` },
+                    { error: `Invalid commitment length: ${commitment.length} characters (expected 66 with 0x). Verify that commitment_c_hex contains 32 bytes encoded in hex.` },
                     { status: 400 }
                 );
             }
@@ -257,11 +257,11 @@ export async function PUT(req: Request) {
                 file_path: filePath || ""
             };
         } else {
-            // Format standard (ne devrait plus être utilisé)
+            // Standard format (should no longer be used)
             contractData = data;
         }
         
-        console.log("🔍 Données du contrat à insérer:", JSON.stringify(contractData, null, 2));
+        console.log("🔍 Contract data to insert:", JSON.stringify(contractData, null, 2));
         
         let stmt;
         let result;
@@ -295,19 +295,19 @@ export async function PUT(req: Request) {
                 contractData.algorithm_suite
             );
         } catch (dbError: any) {
-            console.error("❌ Erreur lors de l'insertion dans la base de données:", dbError);
+            console.error("❌ Error inserting into database:", dbError);
             console.error("❌ Stack:", dbError?.stack);
-            console.error("❌ Données qui ont causé l'erreur:", JSON.stringify(contractData, null, 2));
-            throw new Error(`Erreur base de données: ${dbError.message || dbError}`);
+            console.error("❌ Data that caused the error:", JSON.stringify(contractData, null, 2));
+            throw new Error(`Database error: ${dbError.message || dbError}`);
         }
         const id = result.lastInsertRowid;
-        console.log("✅ Contrat inséré avec ID:", id);
+        console.log("✅ Contract inserted with ID:", id);
 
-        // Si un fichier est fourni, l'enregistrer
+        // If a file is provided, save it
         if (contractData.file_path) {
             if (!fs.existsSync(contractData.file_path)) {
                 return NextResponse.json(
-                    { error: `Fichier chiffré introuvable: ${contractData.file_path}` },
+                    { error: `Encrypted file not found: ${contractData.file_path}` },
                     { status: 400 }
                 );
             }
@@ -315,18 +315,18 @@ export async function PUT(req: Request) {
             const destPath = path.join(UPLOADS_PATH, fileName);
             fs.copyFileSync(contractData.file_path, destPath);
             
-            // Nettoyer le fichier temporaire après copie
+            // Clean up temporary file after copy
             if (contractData.file_path.startsWith(path.join(process.cwd(), "tmp"))) {
                 try {
                     fs.unlinkSync(contractData.file_path);
                 } catch (e) {
-                    console.warn("Impossible de supprimer le fichier temporaire:", contractData.file_path);
+                    console.warn("Unable to delete temporary file:", contractData.file_path);
                 }
             }
         } else if (contractData.file) {
             try {
                 if (!hex_to_bytes || !initSync) {
-                    throw new Error("Module crypto_lib non disponible. Impossible de traiter le fichier.");
+                    throw new Error("crypto_lib module not available. Unable to process file.");
                 }
                 const module = readFileSync(`${WASM_PATH}crypto_lib_bg.wasm`);
                 initSync({ module: module });
@@ -334,30 +334,30 @@ export async function PUT(req: Request) {
                 const fileName = `file_${id}.enc`;
                 fs.writeFileSync(path.join(UPLOADS_PATH, fileName), hex_to_bytes(contractData.file));
             } catch (wasmError: any) {
-                console.error("❌ Erreur lors de l'initialisation WASM ou sauvegarde du fichier:", wasmError);
-                throw new Error(`Erreur lors du traitement du fichier: ${wasmError.message || wasmError}`);
+                console.error("❌ Error initializing WASM or saving file:", wasmError);
+                throw new Error(`Error processing file: ${wasmError.message || wasmError}`);
             }
         }
         
-        // Extraire la clé depuis preOut
-        // Le binaire Rust devrait retourner key_hex dans la sortie JSON
+        // Extract key from preOut
+        // Rust binary should return key_hex in JSON output
         let key: string | null = null;
         if (preOut) {
             // Essayer différentes variantes du nom de champ
             const rawKey = preOut.key_hex || preOut.key || null;
             
             if (rawKey) {
-                // Formater la clé avec le préfixe 0x si nécessaire
+                // Format key with 0x prefix if necessary
                 if (typeof rawKey === "string") {
                     key = rawKey.startsWith("0x") ? rawKey : "0x" + rawKey;
                 } else if (Array.isArray(rawKey)) {
-                    // Si key est un tableau d'octets, le convertir en hex
+                    // If key is a byte array, convert to hex
                     key = "0x" + Buffer.from(rawKey).toString("hex");
                 }
             }
         }
         
-        // Retourner les données nécessaires au frontend
+        // Return data needed by frontend
         return NextResponse.json({ 
             id,
             key: key || null,
@@ -365,18 +365,18 @@ export async function PUT(req: Request) {
             h_ct: preOut?.h_ct_hex || preOut?.h_ct || null
         });
     } catch (error: any) {
-        console.error("❌ ERREUR dans PUT /api/precontracts:");
+        console.error("❌ ERROR in PUT /api/precontracts:");
         console.error("   Message:", error?.message);
         console.error("   Name:", error?.name);
         console.error("   Code:", error?.code);
         console.error("   Stack:", error?.stack);
         
-        // S'assurer qu'on retourne toujours du JSON, même en cas d'erreur
+        // Ensure we always return JSON, even on error
         const errorMessage = error instanceof Error ? error.message : String(error);
         const isDev = process.env.NODE_ENV === "development";
         
         const responseBody: any = { 
-            error: errorMessage || "Erreur lors de la création du precontract"
+            error: errorMessage || "Error creating precontract"
         };
         
         if (isDev) {
@@ -389,7 +389,7 @@ export async function PUT(req: Request) {
             };
         }
         
-        console.log("📤 Retour de l'erreur JSON:", JSON.stringify(responseBody, null, 2));
+        console.log("📤 JSON error response:", JSON.stringify(responseBody, null, 2));
         
         return NextResponse.json(
             responseBody,
