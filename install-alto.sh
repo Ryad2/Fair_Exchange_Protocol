@@ -1,94 +1,94 @@
 #!/bin/bash
 
-# Script d'installation de Pimlico Alto bundler pour tests locaux
+# Installation script for Pimlico Alto bundler for local testing
 
 set -e
 
-echo "🚀 Installation de Pimlico Alto bundler..."
+echo "🚀 Installing Pimlico Alto bundler..."
 
-# Vérifier que pnpm est installé
+# Check that pnpm is installed
 if ! command -v pnpm &> /dev/null; then
-    echo "❌ pnpm n'est pas installé. Installation en cours..."
+    echo "❌ pnpm is not installed. Installing..."
     npm install -g pnpm
 fi
 
-# Vérifier que Foundry (forge) est installé
-# S'assurer que forge est dans le PATH
+# Check that Foundry (forge) is installed
+# Ensure forge is in PATH
 if [ -d "$HOME/.foundry/bin" ] && [[ ":$PATH:" != *":$HOME/.foundry/bin:"* ]]; then
     export PATH="$HOME/.foundry/bin:$PATH"
 fi
 
 if ! command -v forge &> /dev/null; then
-    echo "❌ Foundry (forge) n'est pas installé. Installation en cours..."
-    echo "   Installation de Foundry via foundryup..."
+    echo "❌ Foundry (forge) is not installed. Installing..."
+    echo "   Installing Foundry via foundryup..."
     
-    # Installer foundryup si nécessaire
+    # Install foundryup if necessary
     if ! command -v foundryup &> /dev/null && [ ! -f "$HOME/.foundry/bin/foundryup" ]; then
         curl -L https://foundry.paradigm.xyz | bash
-        # Ajouter foundryup au PATH pour cette session
+        # Add foundryup to PATH for this session
         export PATH="$HOME/.foundry/bin:$PATH"
     fi
     
-    # Exécuter foundryup pour installer Foundry
+    # Run foundryup to install Foundry
     if command -v foundryup &> /dev/null; then
         foundryup || {
-            echo "⚠️  foundryup a échoué. Vérification si forge est déjà installé..."
-            # Vérifier si forge existe dans le répertoire foundry
+            echo "⚠️  foundryup failed. Checking if forge is already installed..."
+            # Check if forge exists in foundry directory
             if [ -f "$HOME/.foundry/bin/forge" ]; then
                 export PATH="$HOME/.foundry/bin:$PATH"
-                echo "✅ forge trouvé dans $HOME/.foundry/bin"
+                echo "✅ forge found in $HOME/.foundry/bin"
             else
-                echo "❌ Installation de Foundry échouée"
-                echo "   Si forge est en cours d'exécution, arrêtez-le et réessayez"
-                echo "   Ou installez Foundry manuellement: foundryup"
+                echo "❌ Foundry installation failed"
+                echo "   If forge is running, stop it and try again"
+                echo "   Or install Foundry manually: foundryup"
                 exit 1
             fi
         }
     elif [ -f "$HOME/.foundry/bin/foundryup" ]; then
         "$HOME/.foundry/bin/foundryup" || {
-            echo "⚠️  foundryup a échoué. Vérification si forge est déjà installé..."
+            echo "⚠️  foundryup failed. Checking if forge is already installed..."
             if [ -f "$HOME/.foundry/bin/forge" ]; then
                 export PATH="$HOME/.foundry/bin:$PATH"
-                echo "✅ forge trouvé dans $HOME/.foundry/bin"
+                echo "✅ forge found in $HOME/.foundry/bin"
             else
-                echo "❌ Installation de Foundry échouée"
+                echo "❌ Foundry installation failed"
                 exit 1
             fi
         }
     fi
     
-    # Vérifier à nouveau après installation
+    # Check again after installation
     if [ -d "$HOME/.foundry/bin" ] && [[ ":$PATH:" != *":$HOME/.foundry/bin:"* ]]; then
         export PATH="$HOME/.foundry/bin:$PATH"
     fi
     
     if ! command -v forge &> /dev/null; then
-        echo "⚠️  Foundry installé mais forge non trouvé dans PATH"
-        echo "   Veuillez redémarrer votre terminal ou exécuter:"
+        echo "⚠️  Foundry installed but forge not found in PATH"
+        echo "   Please restart your terminal or run:"
         echo "   export PATH=\"\$HOME/.foundry/bin:\$PATH\""
-        echo "   Puis relancez ce script."
+        echo "   Then run this script again."
         exit 1
     fi
-    echo "✅ Foundry installé"
+    echo "✅ Foundry installed"
 else
-    echo "✅ Foundry déjà installé: $(forge --version | head -n1)"
+    echo "✅ Foundry already installed: $(forge --version | head -n1)"
 fi
 
-# Cloner Alto si ce n'est pas déjà fait
+# Clone Alto if not already done
 if [ ! -d "bundler-alto" ] || [ -z "$(ls -A bundler-alto 2>/dev/null)" ]; then
     if [ -d "bundler-alto" ] && [ -z "$(ls -A bundler-alto 2>/dev/null)" ]; then
-        echo "📦 Le répertoire bundler-alto est vide, clonage de Pimlico Alto..."
+        echo "📦 bundler-alto directory is empty, cloning Pimlico Alto..."
         rm -rf bundler-alto
     else
-        echo "📦 Clonage de Pimlico Alto..."
+        echo "📦 Cloning Pimlico Alto..."
     fi
     git clone https://github.com/pimlicolabs/alto.git bundler-alto
 else
-    echo "✅ Alto déjà cloné"
+    echo "✅ Alto already cloned"
 fi
 
-# Installer les dépendances
-echo "📦 Installation des dépendances..."
+# Install dependencies
+echo "📦 Installing dependencies..."
 cd bundler-alto
 if [ ! -d "node_modules" ] || [ ! -f "node_modules/.pnpm-lock.yaml" ]; then
     echo "   Installing dependencies (this may take a few minutes)..."
@@ -99,14 +99,14 @@ else
     echo "   ${YELLOW}   (Run 'pnpm install' manually if you need to update dependencies)${NC}"
 fi
 
-# Builder
-echo "🔨 Build en cours..."
-# S'assurer que forge est dans le PATH
+# Build
+echo "🔨 Building..."
+# Ensure forge is in PATH
 if [ -d "$HOME/.foundry/bin" ] && [[ ":$PATH:" != *":$HOME/.foundry/bin:"* ]]; then
     export PATH="$HOME/.foundry/bin:$PATH"
 fi
 
-# Vérifier si Alto est déjà construit
+# Check if Alto is already built
 if [ -f "alto" ] || [ -f "src/esm/cli/alto.js" ]; then
     echo "   ✅ Alto already built"
     echo "   ${YELLOW}   (Skipping build. Delete 'alto' or 'src/esm' to force rebuild)${NC}"
@@ -116,28 +116,7 @@ else
     echo "   ✅ Build completed"
 fi
 
-echo "✅ Installation terminée!"
+echo "✅ Installation completed!"
 echo ""
-echo "Pour lancer Alto, utilisez le script run-alto.sh"
+echo "To launch Alto, use the run-alto.sh script"
 cd ..
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

@@ -4,32 +4,32 @@ import { writeFileSync, readFileSync, existsSync } from "fs";
 import { join } from "path";
 
 /**
- * Script pour redéployer DisputeDeployer avec le nouveau bytecode de DisputeSOXAccount.
+ * Script to redeploy DisputeDeployer with the new DisputeSOXAccount bytecode.
  * 
- * IMPORTANT: Après avoir corrigé DisputeSOXAccount, il faut redéployer DisputeDeployer
- * car il contient le bytecode de DisputeSOXAccount via "new DisputeSOXAccount(...)".
+ * IMPORTANT: After fixing DisputeSOXAccount, DisputeDeployer must be redeployed
+ * because it contains the DisputeSOXAccount bytecode via "new DisputeSOXAccount(...)".
  * 
- * Ce script:
- * 1. Compile les contrats (pour s'assurer que DisputeSOXAccount est à jour)
- * 2. Déploie les libraries nécessaires
- * 3. Déploie DisputeDeployer (qui contient le nouveau bytecode de DisputeSOXAccount)
- * 4. Génère/met à jour les fichiers JSON pour l'application
+ * This script:
+ * 1. Compiles contracts (to ensure DisputeSOXAccount is up to date)
+ * 2. Deploys necessary libraries
+ * 3. Deploys DisputeDeployer (which contains the new DisputeSOXAccount bytecode)
+ * 4. Generates/updates JSON files for the application
  */
 
 async function main() {
     const { ethers } = hre;
     const [sponsor] = await ethers.getSigners();
     
-    console.log("🔄 Redéploiement de DisputeDeployer avec le nouveau bytecode...");
+    console.log("🔄 Redeploying DisputeDeployer with new bytecode...");
     console.log("=".repeat(80));
     
-    // ÉTAPE 1: Compilation
-    console.log("\n📦 ÉTAPE 1: Compilation des contrats...");
+    // STEP 1: Compilation
+    console.log("\n📦 STEP 1: Compiling contracts...");
     await hre.run("compile");
-    console.log("  ✅ Compilation terminée\n");
+    console.log("  ✅ Compilation completed\n");
     
-    // ÉTAPE 2: Déploiement des libraries nécessaires
-    console.log("📦 ÉTAPE 2: Déploiement des libraries...");
+    // STEP 2: Deploy necessary libraries
+    console.log("📦 STEP 2: Deploying libraries...");
     
     const AccumulatorVerifierFactory = await ethers.getContractFactory("AccumulatorVerifier");
     const accumulatorVerifier = await AccumulatorVerifierFactory.deploy();
@@ -49,8 +49,8 @@ async function main() {
     const commitmentOpenerAddr = await commitmentOpener.getAddress();
     console.log("  ✅ CommitmentOpener:", commitmentOpenerAddr);
     
-    // ÉTAPE 3: Déploiement de DisputeDeployer (CRITIQUE)
-    console.log("\n🚀 ÉTAPE 3: Déploiement de DisputeDeployer avec le nouveau bytecode...");
+    // STEP 3: Deploy DisputeDeployer (CRITICAL)
+    console.log("\n🚀 STEP 3: Deploying DisputeDeployer with new bytecode...");
     const DisputeDeployerFactory = await ethers.getContractFactory("DisputeDeployer", {
         libraries: {
             AccumulatorVerifier: accumulatorVerifierAddr,
@@ -61,14 +61,14 @@ async function main() {
     const disputeDeployer = await DisputeDeployerFactory.connect(sponsor).deploy();
     await disputeDeployer.waitForDeployment();
     const disputeDeployerAddr = await disputeDeployer.getAddress();
-    console.log("  ✅ DisputeDeployer déployé à:", disputeDeployerAddr);
-    console.log("  ⚠️  IMPORTANT: Ce DisputeDeployer contient le NOUVEAU bytecode de DisputeSOXAccount");
+    console.log("  ✅ DisputeDeployer deployed at:", disputeDeployerAddr);
+    console.log("  ⚠️  IMPORTANT: This DisputeDeployer contains the NEW DisputeSOXAccount bytecode");
     
-    // ÉTAPE 4: Génération/mise à jour des fichiers JSON
-    console.log("\n📄 ÉTAPE 4: Génération des fichiers JSON pour l'application...");
+    // STEP 4: Generate/update JSON files
+    console.log("\n📄 STEP 4: Generating JSON files for the application...");
     const contractsDir = join(__dirname, "../../app/lib/blockchain/contracts/");
     
-    // Générer DisputeDeployer.json
+    // Generate DisputeDeployer.json
     const DisputeDeployerArtifact = await hre.artifacts.readArtifact("DisputeDeployer");
     const disputeDeployerData = {
         abi: DisputeDeployerArtifact.abi,
@@ -78,9 +78,9 @@ async function main() {
         join(contractsDir, "DisputeDeployer.json"),
         JSON.stringify(disputeDeployerData, null, 2)
     );
-    console.log("  ✅ DisputeDeployer.json généré");
+    console.log("  ✅ DisputeDeployer.json generated");
     
-    // Générer OptimisticSOXAccount.json avec le nouveau DisputeDeployer linké
+    // Generate OptimisticSOXAccount.json with new DisputeDeployer linked
     const OptimisticSOXAccountFactory = await ethers.getContractFactory("OptimisticSOXAccount", {
         libraries: {
             DisputeDeployer: disputeDeployerAddr,
@@ -89,16 +89,16 @@ async function main() {
     const OptimisticSOXAccountArtifact = await hre.artifacts.readArtifact("OptimisticSOXAccount");
     const optimisticData = {
         abi: OptimisticSOXAccountArtifact.abi,
-        bytecode: OptimisticSOXAccountFactory.bytecode, // Bytecode linké avec le nouveau DisputeDeployer
+        bytecode: OptimisticSOXAccountFactory.bytecode, // Linked bytecode with new DisputeDeployer
     };
     writeFileSync(
         join(contractsDir, "OptimisticSOXAccount.json"),
         JSON.stringify(optimisticData, null, 2)
     );
-    console.log("  ✅ OptimisticSOXAccount.json généré avec le nouveau DisputeDeployer");
+    console.log("  ✅ OptimisticSOXAccount.json generated with new DisputeDeployer");
     
-    // ÉTAPE 5: Mise à jour de deployed-contracts.json
-    console.log("\n📝 ÉTAPE 5: Mise à jour de deployed-contracts.json...");
+    // STEP 5: Update deployed-contracts.json
+    console.log("\n📝 STEP 5: Updating deployed-contracts.json...");
     const deployedContractsPath = join(__dirname, "../../../deployed-contracts.json");
     
     let deployedContracts: any = {};
@@ -111,7 +111,7 @@ async function main() {
         deployedContracts.addresses = {};
     }
     
-    // Mettre à jour uniquement DisputeDeployer (les autres libraries restent inchangées)
+    // Update only DisputeDeployer (other libraries remain unchanged)
     deployedContracts.addresses.DisputeDeployer = disputeDeployerAddr;
     deployedContracts.network = hre.network.name;
     deployedContracts.chainId = Number(network.chainId);
@@ -122,21 +122,21 @@ async function main() {
         deployedContractsPath,
         JSON.stringify(deployedContracts, null, 2)
     );
-    console.log("  ✅ deployed-contracts.json mis à jour:", deployedContractsPath);
+    console.log("  ✅ deployed-contracts.json updated:", deployedContractsPath);
     console.log("     DisputeDeployer:", disputeDeployerAddr);
     
     console.log("\n" + "=".repeat(80));
-    console.log("✅ REDÉPLOIEMENT TERMINÉ!");
+    console.log("✅ REDEPLOYMENT COMPLETED!");
     console.log("=".repeat(80));
-    console.log("\n📋 Résumé:");
+    console.log("\n📋 Summary:");
     console.log(`  - DisputeDeployer: ${disputeDeployerAddr}`);
-    console.log(`  - Fichiers JSON mis à jour dans: ${contractsDir}`);
-    console.log(`  - deployed-contracts.json mis à jour: ${deployedContractsPath}`);
+    console.log(`  - JSON files updated in: ${contractsDir}`);
+    console.log(`  - deployed-contracts.json updated: ${deployedContractsPath}`);
     console.log("\n⚠️  IMPORTANT:");
-    console.log("  1. Les nouveaux contrats créés via ce DisputeDeployer utiliseront le NOUVEAU bytecode");
-    console.log("  2. Les contrats déjà déployés ne peuvent PAS être mis à jour (immutables)");
-    console.log("  3. Il faut créer un NOUVEAU OptimisticSOXAccount pour tester avec la correction");
-    console.log("  4. Redémarrer l'application pour utiliser le nouveau DisputeDeployer");
+    console.log("  1. New contracts created via this DisputeDeployer will use the NEW bytecode");
+    console.log("  2. Already deployed contracts CANNOT be updated (immutable)");
+    console.log("  3. You must create a NEW OptimisticSOXAccount to test with the fix");
+    console.log("  4. Restart the application to use the new DisputeDeployer");
     console.log("");
 }
 

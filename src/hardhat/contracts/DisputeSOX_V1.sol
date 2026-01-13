@@ -2,8 +2,8 @@
 pragma solidity ^0.8.0;
 
 contract DisputeSOX_V1 {
-    // NOTE: Ce fichier est une référence. Le code V1 complet devrait être restauré depuis git
-    // si nécessaire. Les principales différences sont documentées ci-dessus.
+    // NOTE: This file is a reference. The complete V1 code should be restored from git
+    // if necessary. The main differences are documented above.
 }
 
 

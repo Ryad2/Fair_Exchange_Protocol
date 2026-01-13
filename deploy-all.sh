@@ -1,21 +1,21 @@
 #!/bin/bash
 
-# Script pour déployer toute l'application SOX
-# Ce script lance tous les composants nécessaires dans l'ordre
+# Script to deploy the complete SOX application
+# This script deploys all necessary contracts in the correct order
 
 set -e
 
-echo "🚀 Déploiement de l'application SOX"
-echo "===================================="
+echo "🚀 Deploying SOX Application"
+echo "============================="
 echo ""
 
-# Couleurs pour les messages
+# Colors for messages
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
-# Fonction pour vérifier si un port est utilisé
+# Function to check if a port is in use
 check_port() {
     if lsof -Pi :$1 -sTCP:LISTEN -t >/dev/null 2>&1 ; then
         return 0
@@ -24,105 +24,92 @@ check_port() {
     fi
 }
 
-# Étape 1: Vérifier que Hardhat node est lancé
-echo "📡 Étape 1: Vérification du nœud Hardhat..."
+# Step 1: Check that Hardhat node is running
+echo "📡 Step 1: Checking Hardhat node..."
 if ! curl -s http://localhost:8545 > /dev/null 2>&1; then
-    echo -e "${YELLOW}⚠️  Hardhat node n'est pas lancé${NC}"
+    echo -e "${YELLOW}⚠️  Hardhat node is not running${NC}"
     echo ""
-    echo "Lancez Hardhat node dans un terminal séparé :"
+    echo "Start Hardhat node in a separate terminal:"
     echo -e "${GREEN}  cd src/hardhat && npx hardhat node${NC}"
     echo ""
-    echo "Puis relancez ce script."
+    echo "Then run this script again."
     exit 1
 fi
-echo -e "${GREEN}✅ Hardhat node est actif${NC}"
+echo -e "${GREEN}✅ Hardhat node is active${NC}"
 echo ""
 
-# Étape 2: Vérifier/Créer la structure du bundler
-echo "📝 Étape 2: Préparation de l'environnement..."
+# Step 2: Check/Create bundler structure
+echo "📝 Step 2: Preparing environment..."
 if [ ! -d "bundler-alto/scripts" ]; then
-    echo "  - Création de la structure du bundler..."
+    echo "  - Creating bundler structure..."
     mkdir -p bundler-alto/scripts
-    # Créer un fichier config.local.json minimal si nécessaire
+    # Create minimal config.local.json if needed
     if [ ! -f "bundler-alto/scripts/config.local.json" ]; then
         echo '{}' > bundler-alto/scripts/config.local.json
     fi
 fi
 
-# Étape 3: Déployer les contrats
-echo "📝 Étape 3: Déploiement des contrats..."
+# Step 3: Deploy contracts
+echo "📝 Step 3: Deploying contracts..."
 cd src/hardhat
 
-# Déployer EntryPoint v0.8 (canonique)
-echo "  - Déploiement de l'EntryPoint v0.8..."
+# Deploy EntryPoint v0.8 (canonical)
+echo "  - Deploying EntryPoint v0.8..."
 if ! npx hardhat run scripts/deployEntryPointV8.ts --network localhost; then
-    echo -e "${RED}❌ Échec du déploiement de l'EntryPoint v0.8${NC}"
-    echo -e "${YELLOW}   Vérifiez que Hardhat node est bien lancé${NC}"
+    echo -e "${RED}❌ Failed to deploy EntryPoint v0.8${NC}"
+    echo -e "${YELLOW}   Check that Hardhat node is running${NC}"
     exit 1
 fi
 
-# Déployer les contrats de simulation
-echo "  - Déploiement des contrats de simulation..."
-npx hardhat run scripts/deployPimlicoSimulations.ts --network localhost || echo -e "${YELLOW}   ⚠️  Simulation Pimlico ignorée${NC}"
-npx hardhat run scripts/deployEntryPointSimulationsV8.ts --network localhost || echo -e "${YELLOW}   ⚠️  Simulation EntryPoint v0.8 ignorée${NC}"
+# Deploy simulation contracts
+echo "  - Deploying simulation contracts..."
+npx hardhat run scripts/deployPimlicoSimulations.ts --network localhost || echo -e "${YELLOW}   ⚠️  Pimlico simulation ignored${NC}"
+npx hardhat run scripts/deployEntryPointSimulationsV8.ts --network localhost || echo -e "${YELLOW}   ⚠️  EntryPoint v0.8 simulation ignored${NC}"
 
-# Déployer tous les autres contrats (deployCompleteStack génère deployed-contracts.json)
-echo "  - Déploiement de tous les contrats..."
+# Deploy all other contracts (deployCompleteStack generates deployed-contracts.json)
+echo "  - Deploying all contracts..."
 if ! npx hardhat run scripts/deployCompleteStack.ts --network localhost; then
-    echo -e "${RED}❌ Échec du déploiement des contrats${NC}"
+    echo -e "${RED}❌ Failed to deploy contracts${NC}"
     exit 1
 fi
 
 cd ../..
-echo -e "${GREEN}✅ Contrats déployés${NC}"
+echo -e "${GREEN}✅ Contracts deployed${NC}"
 echo ""
 
-# Étape 4: Vérifier que le bundler peut démarrer
-echo "🔌 Étape 4: Vérification du bundler..."
+# Step 4: Check that bundler can start
+echo "🔌 Step 4: Checking bundler..."
 if check_port 3002; then
-    echo -e "${YELLOW}⚠️  Le port 3002 est déjà utilisé (bundler peut-être déjà lancé)${NC}"
+    echo -e "${YELLOW}⚠️  Port 3002 is already in use (bundler may already be running)${NC}"
 else
-    echo -e "${GREEN}✅ Le port 3002 est disponible${NC}"
+    echo -e "${GREEN}✅ Port 3002 is available${NC}"
 fi
 echo ""
 
-# Étape 5: Vérifier que Next.js peut démarrer
-echo "🌐 Étape 5: Vérification de Next.js..."
+# Step 5: Check that Next.js can start
+echo "🌐 Step 5: Checking Next.js..."
 if check_port 3000; then
-    echo -e "${YELLOW}⚠️  Le port 3000 est déjà utilisé (Next.js peut-être déjà lancé)${NC}"
+    echo -e "${YELLOW}⚠️  Port 3000 is already in use (Next.js may already be running)${NC}"
 else
-    echo -e "${GREEN}✅ Le port 3000 est disponible${NC}"
+    echo -e "${GREEN}✅ Port 3000 is available${NC}"
 fi
 echo ""
 
-echo "===================================="
-echo -e "${GREEN}✅ Déploiement terminé !${NC}"
+echo "============================="
+echo -e "${GREEN}✅ Deployment completed!${NC}"
 echo ""
-echo "📋 Prochaines étapes :"
+echo "📋 Next steps:"
 echo ""
-echo "1. Lancez le bundler dans un terminal :"
-echo -e "   ${GREEN}cd bundler-alto && ./run-local.sh${NC}"
+echo "1. Start the bundler in a terminal:"
+echo -e "   ${GREEN}./run-alto.sh${NC}"
 echo ""
-echo "2. Lancez Next.js dans un autre terminal :"
+echo "2. Start Next.js in another terminal:"
 echo -e "   ${GREEN}npm run dev${NC}"
 echo ""
-echo "3. (Optionnel) Lancez Electron dans un autre terminal :"
+echo "3. (Optional) Start Electron in another terminal:"
 echo -e "   ${GREEN}cd desktop && npm start${NC}"
 echo ""
-echo "🌐 L'application sera accessible sur :"
+echo "🌐 The application will be accessible at:"
 echo "   - Web: http://localhost:3000"
-echo "   - Bundler: http://localhost:3002/rpc"
+echo "   - Bundler: http://localhost:4337/rpc"
 echo ""
-
-
-
-
-
-
-
-
-
-
-
-
-

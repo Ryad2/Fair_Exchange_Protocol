@@ -1,116 +1,232 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <title>SOX Local Precompute</title>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SOX Desktop Application</title>
     <style>
-      body {
-        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-          sans-serif;
-        margin: 0;
-        padding: 24px;
-        background: #050816;
-        color: #e5e7eb;
-      }
-      h1 {
-        font-size: 20px;
-        margin-bottom: 16px;
-      }
-      button {
-        padding: 8px 16px;
-        border-radius: 6px;
-        border: none;
-        background: #22c55e;
-        color: #020617;
-        font-weight: 600;
-        cursor: pointer;
-      }
-      button:disabled {
-        opacity: 0.6;
-        cursor: default;
-      }
-      pre {
-        background: #020617;
-        padding: 12px;
-        border-radius: 6px;
-        overflow: auto;
-        font-size: 12px;
-      }
-      .status {
-        margin-top: 12px;
-        font-size: 14px;
-      }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 600px;
+            width: 90%;
+            text-align: center;
+        }
+
+        h1 {
+            color: #667eea;
+            margin-bottom: 20px;
+            font-size: 2.5em;
+        }
+
+        .status {
+            margin: 30px 0;
+            padding: 20px;
+            border-radius: 10px;
+            background: #f8f9fa;
+        }
+
+        .status.loading {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            border-left: 4px solid #dc3545;
+        }
+
+        .status.success {
+            background: #d4edda;
+            border-left: 4px solid #28a745;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: background 0.3s;
+        }
+
+        .button:hover {
+            background: #5568d3;
+        }
+
+        .button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        iframe {
+            width: 100%;
+            height: 80vh;
+            border: none;
+            border-radius: 10px;
+            margin-top: 20px;
+        }
+
+        .info {
+            margin-top: 20px;
+            padding: 15px;
+            background: #e7f3ff;
+            border-radius: 8px;
+            color: #004085;
+            font-size: 14px;
+        }
+
+        .info strong {
+            display: block;
+            margin-bottom: 5px;
+        }
     </style>
-  </head>
-  <body>
-    <h1>SOX - Précompute local (Rust natif)</h1>
-    <p>
-      Cette application lit directement un fichier sur le disque, appelle le
-      binaire Rust <code>precontract-cli</code> et affiche le résultat du
-      pré-calcul.
-    </p>
-    <button id="btn-precompute">Choisir un fichier et lancer le précompute</button>
-    <div class="status" id="status"></div>
-    <h2>Résultat brut</h2>
-    <pre id="output">(aucun calcul lancé pour l'instant)</pre>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 SOX Desktop</h1>
+        
+        <div id="status" class="status loading">
+            <div class="spinner"></div>
+            <p>Checking Next.js server...</p>
+        </div>
+
+        <div id="app-container" style="display: none;">
+            <iframe id="app-frame" src="http://localhost:3000"></iframe>
+            <div class="info">
+                <strong>ℹ️ Information</strong>
+                This desktop application loads the Next.js web application.<br>
+                Make sure Next.js is running on <code>http://localhost:3000</code>
+            </div>
+        </div>
+
+        <button id="retry-btn" class="button" style="display: none;" onclick="checkServer()">
+            Retry Connection
+        </button>
+    </div>
 
     <script>
-      const btn = document.getElementById("btn-precompute");
-      const statusEl = document.getElementById("status");
-      const outputEl = document.getElementById("output");
+        const NEXTJS_URL = 'http://localhost:3000';
+        const CHECK_INTERVAL = 2000; // Check every 2 seconds
+        let checkInterval = null;
 
-      btn.addEventListener("click", async () => {
-        if (!window.electronAPI || !window.electronAPI.precompute) {
-          alert("electronAPI.precompute n'est pas disponible.");
-          return;
+        function updateStatus(message, type) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.className = `status ${type}`;
+            statusDiv.innerHTML = '';
+
+            if (type === 'loading') {
+                statusDiv.innerHTML = `
+                    <div class="spinner"></div>
+                    <p>${message}</p>
+                `;
+            } else if (type === 'error') {
+                statusDiv.innerHTML = `
+                    <p style="color: #dc3545; font-weight: bold;">❌ ${message}</p>
+                    <p style="margin-top: 10px; font-size: 14px;">
+                        Make sure Next.js is running:<br>
+                        <code style="background: #f8f9fa; padding: 5px 10px; border-radius: 4px; display: inline-block; margin-top: 5px;">
+                            npm run dev
+                        </code>
+                    </p>
+                `;
+                document.getElementById('retry-btn').style.display = 'block';
+            } else if (type === 'success') {
+                statusDiv.innerHTML = `
+                    <p style="color: #28a745; font-weight: bold;">✅ ${message}</p>
+                `;
+                setTimeout(() => {
+                    statusDiv.style.display = 'none';
+                    document.getElementById('app-container').style.display = 'block';
+                }, 1000);
+            }
         }
 
-        btn.disabled = true;
-        statusEl.textContent = "Précompute en cours...";
-        outputEl.textContent = "";
+        async function checkServer() {
+            try {
+                updateStatus('Checking Next.js server...', 'loading');
+                document.getElementById('retry-btn').style.display = 'none';
 
-        try {
-          const res = await window.electronAPI.precompute();
+                const response = await fetch(NEXTJS_URL, {
+                    method: 'HEAD',
+                    mode: 'no-cors',
+                    cache: 'no-cache'
+                });
 
-          if (res.cancelled) {
-            statusEl.textContent = "Opération annulée.";
-            outputEl.textContent = "(annulé par l'utilisateur)";
-          } else if (res.error) {
-            statusEl.textContent = "Erreur lors du précompute.";
-            outputEl.textContent = res.error;
-          } else {
-            statusEl.textContent =
-              "Précompute terminé. Fichier : " + (res.inputPath || "(inconnu)");
-            outputEl.textContent = JSON.stringify(res, null, 2);
-          }
-        } catch (e) {
-          statusEl.textContent = "Erreur inattendue.";
-          outputEl.textContent = e && e.stack ? e.stack : String(e);
-        } finally {
-          btn.disabled = false;
+                // If we get here, the server is likely running
+                // (no-cors mode doesn't throw on CORS errors, but we can't read the response)
+                updateStatus('Next.js server is running!', 'success');
+                
+                if (checkInterval) {
+                    clearInterval(checkInterval);
+                }
+
+                // Start periodic checks to detect if server goes down
+                checkInterval = setInterval(async () => {
+                    try {
+                        await fetch(NEXTJS_URL, {
+                            method: 'HEAD',
+                            mode: 'no-cors',
+                            cache: 'no-cache'
+                        });
+                    } catch (error) {
+                        console.error('Server check failed:', error);
+                        updateStatus('Connection lost. Next.js server is not responding.', 'error');
+                        document.getElementById('app-container').style.display = 'none';
+                        clearInterval(checkInterval);
+                    }
+                }, CHECK_INTERVAL * 5); // Check every 10 seconds after initial success
+
+            } catch (error) {
+                console.error('Error checking server:', error);
+                updateStatus('Next.js server is not running', 'error');
+            }
         }
-      });
+
+        // Check on load
+        checkServer();
+
+        // Also check iframe load errors
+        document.getElementById('app-frame').addEventListener('error', () => {
+            updateStatus('Failed to load the application. Check that Next.js is running.', 'error');
+            document.getElementById('app-container').style.display = 'none';
+        });
     </script>
-  </body>
-  </html>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+</body>
+</html>

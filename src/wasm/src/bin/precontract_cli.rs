@@ -49,7 +49,7 @@ fn main() -> Result<()> {
 
     // Validate file is not empty (after encryption, we need at least 1 byte of data plus the 16-byte IV)
     if file_bytes.is_empty() {
-        bail!("Le fichier est vide. Veuillez sélectionner un fichier contenant au moins 1 octet de données.");
+        bail!("The file is empty. Please select a file containing at least 1 byte of data.");
     }
 
     let pre = compute_precontract_values_v2(&mut file_bytes, &key);

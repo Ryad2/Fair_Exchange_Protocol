@@ -1,52 +1,55 @@
 # 🚀 Quick Start - SOX Implementation
 
-Guide rapide pour démarrer le projet SOX.
+Quick guide to get started with the SOX project.
 
-## Installation rapide
+## Quick Installation
 
 ```bash
-# 1. Installer toutes les dépendances
+# 1. Install all dependencies
 ./install.sh
 
-# 2. Dans Terminal 1: Lancer Hardhat node
+# 2. In Terminal 1: Start Hardhat node
 cd src/hardhat && npx hardhat node
 
-# 3. Dans Terminal 2: Déployer les contrats
+# 3. In Terminal 2: Deploy contracts
 ./deploy-all.sh
 
-# 4. Dans Terminal 3: Lancer le bundler
+# 4. In Terminal 3: Start the bundler
 ./run-alto.sh
 
-# 5. Dans Terminal 4: Lancer Next.js
+# 5. In Terminal 4: Start Next.js
 npm run dev
+
+# 6. In Terminal 5 (Optional): Start Electron Desktop
+# ⚠️ IMPORTANT: Next.js must be running BEFORE Electron
+cd desktop && npm start
 ```
 
-## Accès
+## Access
 
-- **Application Web**: http://localhost:3000
+- **Web Application**: http://localhost:3000
 - **Bundler RPC**: http://localhost:4337/rpc
 
-## Guide complet
+## Complete Guide
 
-Pour un guide détaillé avec toutes les étapes, configurations et résolution de problèmes, consultez **[GUIDE_INSTALLATION_COMPLET.md](./GUIDE_INSTALLATION_COMPLET.md)**
+For a detailed guide with all steps, configurations, and troubleshooting, see **[GUIDE_INSTALLATION_COMPLET.md](./GUIDE_INSTALLATION_COMPLET.md)**
 
-## Prérequis
+## Prerequisites
 
 - Node.js >= 22.13.1
-- Rust/Cargo (pour compiler le binaire WASM)
-- sqlite3 (pour la base de données)
-- pnpm (installé automatiquement)
+- Rust/Cargo (to compile WASM binary)
+- sqlite3 (for database)
+- pnpm (installed automatically)
 
-## Problèmes courants
+## Common Issues
 
 ### "Failed to fetch"
-→ Vérifiez que `enable-cors: true` est dans `bundler-alto/scripts/config.local.json` et redémarrez le bundler
+→ Check that `enable-cors: true` is in `bundler-alto/scripts/config.local.json` and restart the bundler
 
 ### "No deployed library addresses found"
-→ Relancez `./deploy-all.sh` pour déployer les contrats
+→ Run `./deploy-all.sh` again to deploy contracts
 
 ### "spawn precontract_cli ENOENT"
-→ Compilez le binaire Rust : `cd src/wasm && cargo build --release --bin precontract_cli`
+→ Compile the Rust binary: `cd src/wasm && cargo build --release --bin precontract_cli`
 
-Pour plus de détails, consultez le [Guide Complet](./GUIDE_INSTALLATION_COMPLET.md)
-
+For more details, see the [Complete Guide](./GUIDE_INSTALLATION_COMPLET.md)

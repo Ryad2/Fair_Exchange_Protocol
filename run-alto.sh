@@ -1,86 +1,86 @@
 #!/bin/bash
 
-# Script pour lancer le bundler Alto
+# Script to start the Alto bundler
 
 set -e
 
-# Couleurs pour les messages
+# Colors for messages
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
-echo -e "${GREEN}🚀 Démarrage du bundler Alto...${NC}"
+echo -e "${GREEN}🚀 Starting Alto bundler...${NC}"
 echo ""
 
-# Vérifier que nous sommes dans le bon répertoire
+# Check that we are in the correct directory
 if [ ! -d "bundler-alto" ]; then
-    echo -e "${RED}❌ Le répertoire bundler-alto n'existe pas${NC}"
-    echo "   Exécutez d'abord: ./install-alto.sh"
+    echo -e "${RED}❌ bundler-alto directory does not exist${NC}"
+    echo "   Run first: ./install-alto.sh"
     exit 1
 fi
 
 cd bundler-alto
 
-# Vérifier que Alto est construit
+# Check that Alto is built
 if [ ! -f "alto" ] && [ ! -f "src/esm/cli/alto.js" ]; then
-    echo -e "${YELLOW}⚠️  Alto n'est pas construit. Build en cours...${NC}"
+    echo -e "${YELLOW}⚠️  Alto is not built. Building...${NC}"
     export PATH="$HOME/.foundry/bin:$PATH"
     pnpm run build:all
 fi
 
-# Vérifier que la configuration existe
+# Check that configuration exists
 CONFIG_FILE="scripts/config.local.json"
 if [ ! -f "$CONFIG_FILE" ]; then
-    echo -e "${YELLOW}⚠️  Fichier de configuration non trouvé: $CONFIG_FILE${NC}"
-    echo "   Création d'une configuration par défaut..."
+    echo -e "${YELLOW}⚠️  Configuration file not found: $CONFIG_FILE${NC}"
+    echo "   Creating default configuration..."
     mkdir -p scripts
     cat > "$CONFIG_FILE" << 'EOF'
 {
     "network-name": "local",
     "rpc-url": "http://127.0.0.1:8545",
     "entrypoints": "",
-    "port": 3002
+    "port": 4337
 }
 EOF
-    echo -e "${YELLOW}   ⚠️  Veuillez mettre à jour $CONFIG_FILE avec l'adresse EntryPoint déployée${NC}"
+    echo -e "${YELLOW}   ⚠️  Please update $CONFIG_FILE with the deployed EntryPoint address${NC}"
     echo ""
 fi
 
-# Vérifier que Hardhat node est lancé
+# Check that Hardhat node is running
 if ! curl -s http://localhost:8545 > /dev/null 2>&1; then
-    echo -e "${YELLOW}⚠️  Hardhat node ne semble pas être lancé${NC}"
-    echo "   Lancez Hardhat node dans un terminal séparé :"
+    echo -e "${YELLOW}⚠️  Hardhat node does not seem to be running${NC}"
+    echo "   Start Hardhat node in a separate terminal:"
     echo -e "   ${GREEN}cd src/hardhat && npx hardhat node${NC}"
     echo ""
-    read -p "Appuyez sur Entrée pour continuer quand Hardhat node est lancé... "
+    read -p "Press Enter to continue when Hardhat node is running... "
 fi
 
-# S'assurer que forge est dans le PATH
+# Ensure forge is in PATH
 if [ -d "$HOME/.foundry/bin" ] && [[ ":$PATH:" != *":$HOME/.foundry/bin:"* ]]; then
     export PATH="$HOME/.foundry/bin:$PATH"
 fi
 
-# Lire le port depuis la config si disponible
+# Read port from config if available
 PORT=$(grep -o '"port"[[:space:]]*:[[:space:]]*[0-9]*' "$CONFIG_FILE" | grep -o '[0-9]*' | head -n1)
 if [ -z "$PORT" ]; then
-    PORT=3002
+    PORT=4337
 fi
 
-# Lancer Alto
-echo -e "${GREEN}📍 Lancement du bundler Alto...${NC}"
-echo -e "${GREEN}   Le bundler sera accessible sur: http://localhost:${PORT}/rpc${NC}"
+# Launch Alto
+echo -e "${GREEN}📍 Launching Alto bundler...${NC}"
+echo -e "${GREEN}   Bundler will be accessible at: http://localhost:${PORT}/rpc${NC}"
 echo ""
-echo -e "${YELLOW}   Pour arrêter le bundler, appuyez sur Ctrl+C${NC}"
+echo -e "${YELLOW}   To stop the bundler, press Ctrl+C${NC}"
 echo ""
 
-# Utiliser le binaire alto (qui appelle pnpm start) ou directement node
+# Use alto binary (which calls pnpm start) or directly node
 if [ -f "alto" ]; then
     ./alto --config scripts/config.local.json
 elif [ -f "src/esm/cli/alto.js" ]; then
     node src/esm/cli/alto.js run --config scripts/config.local.json
 else
-    echo -e "${RED}❌ Impossible de trouver le binaire Alto${NC}"
-    echo "   Essayez de builder: pnpm run build:all"
+    echo -e "${RED}❌ Cannot find Alto binary${NC}"
+    echo "   Try building: pnpm run build:all"
     exit 1
 fi

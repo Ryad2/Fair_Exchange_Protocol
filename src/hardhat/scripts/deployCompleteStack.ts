@@ -34,15 +34,15 @@ async function setStorage(
 }
 
 /**
- * Script de déploiement complet et synchronisé
+ * Complete and synchronized deployment script
  * 
- * Ce script déploie dans l'ordre :
- * 1. Toutes les libraries nécessaires
+ * This script deploys in order:
+ * 1. All necessary libraries
  * 2. DisputeDeployer
- * 3. EntryPoint (pour ERC-4337)
- * 4. Génère les JSON avec les bonnes adresses
- * 5. Met à jour la config du bundler
- * 6. Crée un fichier .env.local avec les adresses
+ * 3. EntryPoint (for ERC-4337)
+ * 4. Generates JSON files with correct addresses
+ * 5. Updates bundler config
+ * 6. Creates .env.local file with addresses
  */
 
 interface DeploymentAddresses {
@@ -61,7 +61,7 @@ async function main() {
     const [sponsor] = await ethers.getSigners();
 
     console.log("=".repeat(80));
-    console.log("🚀 DÉPLOIEMENT COMPLET ET SYNCHRONISÉ DU STACK SOX");
+    console.log("🚀 COMPLETE AND SYNCHRONIZED SOX STACK DEPLOYMENT");
     console.log("=".repeat(80));
     console.log("");
     console.log("📋 Signer:", await sponsor.getAddress());
@@ -80,9 +80,9 @@ async function main() {
     };
 
     // ============================================
-    // ÉTAPE 1: Déploiement des libraries
+    // STEP 1: Deploy libraries
     // ============================================
-    console.log("📚 ÉTAPE 1: Déploiement des libraries...");
+    console.log("📚 STEP 1: Deploying libraries...");
     console.log("-".repeat(80));
 
     const AccumulatorVerifierFactory = await ethers.getContractFactory("AccumulatorVerifier");
@@ -130,9 +130,9 @@ async function main() {
     console.log("");
 
     // ============================================
-    // ÉTAPE 2: Déploiement de DisputeDeployer
+    // STEP 2: Deploy DisputeDeployer
     // ============================================
-    console.log("📦 ÉTAPE 2: Déploiement de DisputeDeployer...");
+    console.log("📦 STEP 2: Deploying DisputeDeployer...");
     console.log("-".repeat(80));
 
     const DisputeDeployerFactory = await ethers.getContractFactory("DisputeDeployer", {
@@ -151,14 +151,14 @@ async function main() {
     console.log("");
 
     // ============================================
-    // ÉTAPE 3: Déploiement de l'EntryPoint v0.8 (canonique)
+    // STEP 3: Deploy EntryPoint v0.8 (canonical)
     // ============================================
-    console.log("🔐 ÉTAPE 3: Déploiement de l'EntryPoint v0.8 (canonique)...");
+    console.log("🔐 STEP 3: Deploying EntryPoint v0.8 (canonical)...");
     console.log("-".repeat(80));
 
     const provider = ethers.provider;
     
-    // Déployer un EntryPoint temporaire pour obtenir son runtime code
+    // Deploy a temporary EntryPoint to get its runtime code
     const entryPointJsonPath = join(
         __dirname,
         "../../../bundler-alto/src/contracts/EntryPointFilterOpsOverride.sol/EntryPointFilterOpsOverride08.json"
@@ -181,14 +181,14 @@ async function main() {
         throw new Error("Failed to read EntryPoint runtime code");
     }
     
-    // Déployer l'EntryPoint à l'adresse canonique
+    // Deploy EntryPoint at canonical address
     await setCode(provider, CANONICAL_ENTRYPOINT_V8, runtimeCode);
-    await setCode(provider, tempAddress, "0x"); // Nettoyer le contrat temporaire
+    await setCode(provider, tempAddress, "0x"); // Clean up temporary contract
     
     addresses.entryPoint = CANONICAL_ENTRYPOINT_V8;
-    console.log("  ✅ EntryPoint v0.8 déployé à:", addresses.entryPoint);
+    console.log("  ✅ EntryPoint v0.8 deployed at:", addresses.entryPoint);
     
-    // Déployer et configurer SenderCreator
+    // Deploy and configure SenderCreator
     const senderCreatorJsonPath = join(
         __dirname,
         "../../../bundler-alto/src/contracts/SenderCreator.sol/SenderCreator.json"
@@ -204,9 +204,9 @@ async function main() {
     const senderCreator = await senderCreatorFactory.deploy();
     await senderCreator.waitForDeployment();
     const senderCreatorAddress = await senderCreator.getAddress();
-    console.log("  ✅ SenderCreator déployé à:", senderCreatorAddress);
+    console.log("  ✅ SenderCreator deployed at:", senderCreatorAddress);
     
-    // Configurer le slot SenderCreator dans l'EntryPoint
+    // Configure SenderCreator slot in EntryPoint
     const senderCreatorSlot = ethers.keccak256(
         ethers.toUtf8Bytes("SENDER_CREATOR")
     );
@@ -217,22 +217,22 @@ async function main() {
         senderCreatorSlot,
         senderCreatorValue
     );
-    console.log("  ✅ SenderCreator slot configuré");
+    console.log("  ✅ SenderCreator slot configured");
     
-    // Initialiser le domain separator
+    // Initialize domain separator
     const entryPointContract = new ethers.Contract(
         CANONICAL_ENTRYPOINT_V8,
         ["function initDomainSeparator() external"],
         sponsor
     );
     await (entryPointContract.initDomainSeparator() as Promise<any>);
-    console.log("  ✅ Domain separator initialisé");
+    console.log("  ✅ Domain separator initialized");
     console.log("");
 
     // ============================================
-    // ÉTAPE 4: Génération des JSON avec bytecode linké
+    // STEP 4: Generate JSON files with linked bytecode
     // ============================================
-    console.log("📄 ÉTAPE 4: Génération des JSON avec bytecode linké...");
+    console.log("📄 STEP 4: Generating JSON files with linked bytecode...");
     console.log("-".repeat(80));
 
     const contractsDir = join(__dirname, "../../app/lib/blockchain/contracts/");
@@ -244,7 +244,7 @@ async function main() {
         mkdirSync(legacyContractsDir, { recursive: true });
     }
 
-    // Générer JSON pour chaque library
+    // Generate JSON for each library
     const libraryNames = [
         "AccumulatorVerifier",
         "SHA256Evaluator",
@@ -265,25 +265,25 @@ async function main() {
             join(contractsDir, `${libName}.json`),
             JSON.stringify(data, null, 2)
         );
-        console.log(`  ✅ ${libName}.json généré`);
+        console.log(`  ✅ ${libName}.json generated`);
     }
 
-    // Générer JSON pour OptimisticSOXAccount avec bytecode linké
+    // Generate JSON for OptimisticSOXAccount with linked bytecode
     const OptimisticSOXAccountArtifact = await hre.artifacts.readArtifact("OptimisticSOXAccount");
     let optimisticBytecode = OptimisticSOXAccountArtifact.bytecode;
     
-    // Remplacer le placeholder de DisputeDeployer dans le bytecode
-    const disputeDeployerPlaceholder = "0".repeat(40); // Placeholder de 40 caractères (20 bytes)
+    // Replace DisputeDeployer placeholder in bytecode
+    const disputeDeployerPlaceholder = "0".repeat(40); // 40 character placeholder (20 bytes)
     const disputeDeployerAddress = addresses.disputeDeployer.slice(2).toLowerCase();
     
-    // Trouver et remplacer le placeholder (peut nécessiter plusieurs tentatives selon le format)
+    // Find and replace placeholder (may require multiple attempts depending on format)
     optimisticBytecode = optimisticBytecode.replace(
         new RegExp(disputeDeployerPlaceholder, "gi"),
         disputeDeployerAddress
     );
     
-    // Si le placeholder n'est pas trouvé, essayer de linker manuellement
-    // Note: Hardhat devrait déjà linker, mais on s'assure que c'est correct
+    // If placeholder not found, try manual linking
+    // Note: Hardhat should already link, but we ensure it's correct
     const OptimisticSOXAccountFactory = await ethers.getContractFactory("OptimisticSOXAccount", {
         libraries: {
             DisputeDeployer: addresses.disputeDeployer,
@@ -299,9 +299,9 @@ async function main() {
         join(contractsDir, "OptimisticSOXAccount.json"),
         JSON.stringify(optimisticData, null, 2)
     );
-    console.log("  ✅ OptimisticSOXAccount.json généré avec bytecode linké");
+    console.log("  ✅ OptimisticSOXAccount.json generated with linked bytecode");
 
-    // Générer JSON pour DisputeSOXAccount
+    // Generate JSON for DisputeSOXAccount
     const DisputeSOXAccountArtifact = await hre.artifacts.readArtifact("DisputeSOXAccount");
     const disputeData = {
         abi: DisputeSOXAccountArtifact.abi,
@@ -311,9 +311,9 @@ async function main() {
         join(contractsDir, "DisputeSOXAccount.json"),
         JSON.stringify(disputeData, null, 2)
     );
-    console.log("  ✅ DisputeSOXAccount.json généré");
+    console.log("  ✅ DisputeSOXAccount.json generated");
 
-    // Générer JSON pour OptimisticSOX (base, sans ERC-4337) - optionnel
+    // Generate JSON for OptimisticSOX (base, without ERC-4337) - optional
     try {
         const OptimisticSOXArtifact = await hre.artifacts.readArtifact("OptimisticSOX");
         const optimisticBaseFactory = await ethers.getContractFactory("OptimisticSOX", {
@@ -329,12 +329,12 @@ async function main() {
             join(legacyContractsDir, "OptimisticSOX.json"),
             JSON.stringify(optimisticBaseData, null, 2)
         );
-        console.log("  ✅ legacy/OptimisticSOX.json généré avec bytecode linké");
+        console.log("  ✅ legacy/OptimisticSOX.json generated with linked bytecode");
     } catch (error) {
-        console.log("  ⚠️  OptimisticSOX n'existe pas (ignoré)");
+        console.log("  ⚠️  OptimisticSOX does not exist (ignored)");
     }
 
-    // Générer JSON pour DisputeSOX (base) - optionnel
+    // Generate JSON for DisputeSOX (base) - optional
     try {
         const DisputeSOXArtifact = await hre.artifacts.readArtifact("DisputeSOX");
         const disputeBaseData = {
@@ -345,17 +345,17 @@ async function main() {
             join(legacyContractsDir, "DisputeSOX.json"),
             JSON.stringify(disputeBaseData, null, 2)
         );
-        console.log("  ✅ legacy/DisputeSOX.json généré");
+        console.log("  ✅ legacy/DisputeSOX.json generated");
     } catch (error) {
-        console.log("  ⚠️  DisputeSOX n'existe pas (ignoré)");
+        console.log("  ⚠️  DisputeSOX does not exist (ignored)");
     }
 
     console.log("");
 
     // ============================================
-    // ÉTAPE 5: Mise à jour de la config du bundler
+    // STEP 5: Update bundler config
     // ============================================
-    console.log("⚙️  ÉTAPE 5: Mise à jour de la config du bundler...");
+    console.log("⚙️  STEP 5: Updating bundler config...");
     console.log("-".repeat(80));
 
     const bundlerConfigPath = join(__dirname, "../../../bundler-alto/config.localhost.json");
@@ -368,32 +368,32 @@ async function main() {
             bundlerConfigPath,
             JSON.stringify(bundlerConfig, null, 2)
         );
-        console.log("  ✅ Config bundler mise à jour:", bundlerConfigPath);
+        console.log("  ✅ Bundler config updated:", bundlerConfigPath);
         console.log("     EntryPoint:", addresses.entryPoint);
     } else {
-        console.log("  ⚠️  Fichier de config bundler non trouvé:", bundlerConfigPath);
-        console.log("     Vous devrez mettre à jour manuellement la config du bundler");
+        console.log("  ⚠️  Bundler config file not found:", bundlerConfigPath);
+        console.log("     You will need to manually update the bundler config");
     }
     console.log("");
 
     // ============================================
-    // ÉTAPE 6: Création du fichier .env.local
+    // STEP 6: Create .env.local file
     // ============================================
-    console.log("🔧 ÉTAPE 6: Création du fichier .env.local...");
+    console.log("🔧 STEP 6: Creating .env.local file...");
     console.log("-".repeat(80));
 
     const envPath = join(__dirname, "../../../.env.local");
-    const envContent = `# Adresses déployées automatiquement par deployCompleteStack.ts
-# Généré le: ${new Date().toISOString()}
+    const envContent = `# Deployed addresses automatically generated by deployCompleteStack.ts
+# Generated on: ${new Date().toISOString()}
 
-# EntryPoint pour ERC-4337 (v0.8 canonique)
+# EntryPoint for ERC-4337 (v0.8 canonical)
 NEXT_PUBLIC_ENTRY_POINT=${addresses.entryPoint}
 NEXT_PUBLIC_ENTRY_POINT_V8=${addresses.entryPoint}
 
-# RPC URL (par défaut: localhost)
+# RPC URL (default: localhost)
 NEXT_PUBLIC_RPC_URL=http://localhost:8545
 
-# Libraries déployées (pour référence)
+# Deployed libraries (for reference)
 ACCUMULATOR_VERIFIER=${addresses.accumulatorVerifier}
 SHA256_EVALUATOR=${addresses.sha256Evaluator}
 SIMPLE_OPERATIONS_EVALUATOR=${addresses.simpleOperationsEvaluator}
@@ -404,13 +404,13 @@ DISPUTE_DEPLOYER=${addresses.disputeDeployer}
 `;
 
     writeFileSync(envPath, envContent);
-    console.log("  ✅ Fichier .env.local créé:", envPath);
+    console.log("  ✅ .env.local file created:", envPath);
     console.log("");
 
     // ============================================
-    // ÉTAPE 7: Mise à jour de deployed-contracts.json
+    // STEP 7: Update deployed-contracts.json
     // ============================================
-    console.log("📝 ÉTAPE 7: Mise à jour de deployed-contracts.json...");
+    console.log("📝 STEP 7: Updating deployed-contracts.json...");
     console.log("-".repeat(80));
 
     const deployedContractsPath = join(__dirname, "../../../deployed-contracts.json");
@@ -435,26 +435,26 @@ DISPUTE_DEPLOYER=${addresses.disputeDeployer}
 
     const jsonContent = JSON.stringify(deployedContractsData, null, 2);
     
-    // Écrire à la racine (pour compatibilité)
+    // Write to root (for compatibility)
     writeFileSync(deployedContractsPath, jsonContent);
-    console.log("  ✅ deployed-contracts.json mis à jour:", deployedContractsPath);
+    console.log("  ✅ deployed-contracts.json updated:", deployedContractsPath);
     
-    // Écrire aussi dans src/ (pour que Next.js/Turbopack puisse le trouver)
+    // Also write to src/ (so Next.js/Turbopack can find it)
     writeFileSync(deployedContractsSrcPath, jsonContent);
-    console.log("  ✅ src/deployed-contracts.json mis à jour:", deployedContractsSrcPath);
+    console.log("  ✅ src/deployed-contracts.json updated:", deployedContractsSrcPath);
     console.log("     DisputeDeployer:", addresses.disputeDeployer);
     console.log("");
 
     // ============================================
-    // RÉSUMÉ
+    // SUMMARY
     // ============================================
     console.log("=".repeat(80));
-    console.log("✅ DÉPLOIEMENT COMPLET TERMINÉ AVEC SUCCÈS !");
+    console.log("✅ COMPLETE DEPLOYMENT FINISHED SUCCESSFULLY!");
     console.log("=".repeat(80));
     console.log("");
-    console.log("📋 Adresses déployées :");
+    console.log("📋 Deployed addresses:");
     console.log("");
-    console.log("  Libraries :");
+    console.log("  Libraries:");
     console.log("    AccumulatorVerifier      :", addresses.accumulatorVerifier);
     console.log("    SHA256Evaluator          :", addresses.sha256Evaluator);
     console.log("    SimpleOperationsEvaluator:", addresses.simpleOperationsEvaluator);
@@ -462,27 +462,25 @@ DISPUTE_DEPLOYER=${addresses.disputeDeployer}
     console.log("    CircuitEvaluator        :", addresses.circuitEvaluator);
     console.log("    CommitmentOpener         :", addresses.commitmentOpener);
     console.log("");
-    console.log("  Contrats principaux :");
+    console.log("  Main contracts:");
     console.log("    DisputeDeployer         :", addresses.disputeDeployer);
     console.log("    EntryPoint              :", addresses.entryPoint);
     console.log("");
-    console.log("📄 Fichiers générés :");
-    console.log("    JSON contracts         : src/app/lib/blockchain/contracts/*.json");
-    console.log("    Config bundler         : bundler-alto/config.localhost.json");
-    console.log("    Variables d'environnement: .env.local");
+    console.log("📄 Generated files:");
+    console.log("    Contract JSON files     : src/app/lib/blockchain/contracts/*.json");
+    console.log("    Bundler config          : bundler-alto/config.localhost.json");
+    console.log("    Environment variables   : .env.local");
     console.log("");
-    console.log("🚀 Prochaines étapes :");
-    console.log("    1. Vérifier que le fichier .env.local est chargé par Next.js");
-    console.log("    2. Redémarrer l'application web (npm run dev)");
-    console.log("    3. Démarrer le bundler avec la nouvelle config");
-    console.log("    4. Tester le déploiement d'un contrat OptimisticSOXAccount");
+    console.log("🚀 Next steps:");
+    console.log("    1. Verify that .env.local file is loaded by Next.js");
+    console.log("    2. Restart the web application (npm run dev)");
+    console.log("    3. Start the bundler with the new config");
+    console.log("    4. Test deploying an OptimisticSOXAccount contract");
     console.log("");
     console.log("=".repeat(80));
 }
 
 main().catch((error) => {
-    console.error("❌ Erreur lors du déploiement:", error);
+    console.error("❌ Error during deployment:", error);
     process.exitCode = 1;
 });
-
-

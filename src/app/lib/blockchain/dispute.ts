@@ -4,22 +4,22 @@ import { sendUserOperation, sendUserOperationV8, waitForUserOperationReceipt } f
 import { Contract, isAddress, hexlify, getBytes, Wallet, keccak256 } from "ethers";
 
 const DISPUTE_ERROR_HINTS: Record<string, string> = {
-    InvalidState: "Le contrat n'est pas dans l'état attendu pour cette action.",
-    UnexpectedSender: "Le signataire n'est pas l'acteur attendu (buyer/vendor/sponsor).",
-    AESKeyInvalid: "La clé AES n'est pas encore définie (le vendeur doit envoyer la clé).",
-    InvalidGateBytes: "Le format des gate bytes est invalide (64 octets attendus).",
-    InvalidV2SonIndex: "Indice de fils invalide dans la preuve.",
-    CTIndexOutOfBounds: "Index CT en dehors des limites.",
-    InvalidOptimisticState: "Le contrat optimiste n'est pas dans l'état attendu.",
-    InsufficientFunds: "Fonds insuffisants pour l'action.",
-    InvalidSignature: "Signature invalide pour ce rôle.",
-    InvalidSignatureLength: "Signature invalide (longueur).",
-    InvalidSignatureV: "Signature invalide (v).",
-    InvalidSignatureS: "Signature invalide (s).",
-    OnlyBuyer: "Seul le buyer peut effectuer cette action.",
-    OnlyVendor: "Seul le vendor peut effectuer cette action.",
-    OnlyBuyerDisputeSponsor: "Seul le sponsor buyer peut effectuer cette action.",
-    OnlyVendorDisputeSponsor: "Seul le sponsor vendor peut effectuer cette action.",
+    InvalidState: "The contract is not in the expected state for this action.",
+    UnexpectedSender: "The signer is not the expected actor (buyer/vendor/sponsor).",
+    AESKeyInvalid: "The AES key is not yet set (the vendor must send the key).",
+    InvalidGateBytes: "The gate bytes format is invalid (64 bytes expected).",
+    InvalidV2SonIndex: "Invalid son index in the proof.",
+    CTIndexOutOfBounds: "CT index out of bounds.",
+    InvalidOptimisticState: "The optimistic contract is not in the expected state.",
+    InsufficientFunds: "Insufficient funds for the action.",
+    InvalidSignature: "Invalid signature for this role.",
+    InvalidSignatureLength: "Invalid signature (length).",
+    InvalidSignatureV: "Invalid signature (v).",
+    InvalidSignatureS: "Invalid signature (s).",
+    OnlyBuyer: "Only the buyer can perform this action.",
+    OnlyVendor: "Only the vendor can perform this action.",
+    OnlyBuyerDisputeSponsor: "Only the buyer sponsor can perform this action.",
+    OnlyVendorDisputeSponsor: "Only the vendor sponsor can perform this action.",
 };
 
 function extractErrorName(contract: Contract, error: any): string | null {
@@ -46,15 +46,15 @@ function extractErrorName(contract: Contract, error: any): string | null {
 }
 
 function formatDisputeError(contract: Contract, error: any): string {
-    console.error("🔍 formatDisputeError - Erreur brute:", error);
+    console.error("🔍 formatDisputeError - Raw error:", error);
     console.error("🔍 formatDisputeError - Type:", typeof error);
-    console.error("🔍 formatDisputeError - Constructeur:", error?.constructor?.name);
+    console.error("🔍 formatDisputeError - Constructor:", error?.constructor?.name);
     
-    // Essayer d'extraire le nom de l'erreur personnalisée
+    // Try to extract the custom error name
     const errorName = extractErrorName(contract, error);
     if (errorName) {
         const hint = DISPUTE_ERROR_HINTS[errorName];
-        return hint ? `${hint} (${errorName})` : `Erreur: ${errorName}`;
+        return hint ? `${hint} (${errorName})` : `Error: ${errorName}`;
     }
 
     // Essayer plusieurs sources pour le message d'erreur
