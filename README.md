@@ -40,7 +40,7 @@ cd desktop && npm start
 
 For a detailed guide with all steps, configurations, and troubleshooting, see:
 
-**[📖 GUIDE_INSTALLATION_COMPLET.md](./GUIDE_INSTALLATION_COMPLET.md)**
+**[📖 INSTALLATION_GUIDE_COMPLETE.md](./INSTALLATION_GUIDE_COMPLETE.md)**
 
 This guide covers:
 - ✅ Complete installation from scratch
@@ -110,12 +110,12 @@ Electron loads the Next.js application in an Electron window, so Next.js must be
 
 ### Common Issues
 
-- **"Module not found: deployed-contracts.json"** → See [Complete Guide - Issue 3a](./GUIDE_INSTALLATION_COMPLET.md#problème-3a-module-not-found-cant-resolve-deployed-contractsjson)
+- **"Module not found: deployed-contracts.json"** → See [Complete Guide - Issue 3a](./INSTALLATION_GUIDE_COMPLETE.md#problem-3a-module-not-found-cant-resolve-deployed-contractsjson)
 - **"Failed to fetch"** → Check that `enable-cors: true` is in `bundler-alto/scripts/config.local.json`
 - **"No deployed library addresses found"** → Run `./deploy-all.sh` again to deploy contracts
 - **"spawn precontract_cli ENOENT"** → Compile the Rust binary: `cd src/wasm && cargo build --release --bin precontract_cli`
 
-For the complete list of issues and solutions, see the [Complete Installation Guide](./GUIDE_INSTALLATION_COMPLET.md#-résolution-des-problèmes).
+For the complete list of issues and solutions, see the [Complete Installation Guide](./INSTALLATION_GUIDE_COMPLETE.md#-troubleshooting).
 
 ## 📝 Project Structure
 
@@ -130,12 +130,12 @@ sox_implementation/
 ├── install.sh            # Automatic installation script
 ├── deploy-all.sh         # Contract deployment script
 ├── run-alto.sh           # Script to start the bundler
-└── GUIDE_INSTALLATION_COMPLET.md  # Detailed installation guide
+└── INSTALLATION_GUIDE_COMPLETE.md  # Detailed installation guide
 ```
 
 ## 🔗 Useful Links
 
-- [Complete Installation Guide](./GUIDE_INSTALLATION_COMPLET.md)
+- [Complete Installation Guide](./INSTALLATION_GUIDE_COMPLETE.md)
 - [Quick Start](./QUICK_START.md)
 - [ERC-4337 Documentation](https://eips.ethereum.org/EIPS/eip-4337)
 - [Pimlico Alto Bundler](https://docs.pimlico.io/infra/bundler)
@@ -150,4 +150,4 @@ sox_implementation/
 
 ---
 
-**For any questions or issues, see the [Complete Installation Guide](./GUIDE_INSTALLATION_COMPLET.md).**
+**For any questions or issues, see the [Complete Installation Guide](./INSTALLATION_GUIDE_COMPLETE.md).**

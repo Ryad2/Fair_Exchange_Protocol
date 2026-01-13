@@ -32,7 +32,7 @@ cd desktop && npm start
 
 ## Complete Guide
 
-For a detailed guide with all steps, configurations, and troubleshooting, see **[GUIDE_INSTALLATION_COMPLET.md](./GUIDE_INSTALLATION_COMPLET.md)**
+For a detailed guide with all steps, configurations, and troubleshooting, see **[INSTALLATION_GUIDE_COMPLETE.md](./INSTALLATION_GUIDE_COMPLETE.md)**
 
 ## Prerequisites
 
@@ -52,4 +52,4 @@ For a detailed guide with all steps, configurations, and troubleshooting, see **
 ### "spawn precontract_cli ENOENT"
 → Compile the Rust binary: `cd src/wasm && cargo build --release --bin precontract_cli`
 
-For more details, see the [Complete Guide](./GUIDE_INSTALLATION_COMPLET.md)
+For more details, see the [Complete Guide](./INSTALLATION_GUIDE_COMPLETE.md)
