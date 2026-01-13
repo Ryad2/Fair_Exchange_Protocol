@@ -3,8 +3,8 @@ import {
     initSync,
     compute_proofs_v2,
     bytes_to_hex,
-    compute_precontract_vareades_v2,
-    evareadate_circuit_v2_wasm,
+    compute_precontract_values_v2,
+    evaluate_circuit_v2_wasm,
 } from "../../app/lib/crypto_lib/crypto_lib";
 import { join } from "path";
 import { readFileSync } from "fs";
@@ -13,9 +13,9 @@ import { readFileSync } from "fs";
  * Script pour verify si compute_proofs_v2 génère proof2 avec ou sans IV
  */
 async function main() {
-    console.log("🔍 VERIFICATION: compute_proofs_v2 et proof2");
+    console.log("🔍 VERIFICATION: compute_proofs_v2 and proof2");
     console.log("=".repeat(80));
-    console.log("📁 Fichier: test_65bytes.bin\n");
+    console.log("📁 File: test_65bytes.bin\n");
 
     // Initialize WASM
     const wasmPath = join(__dirname, "../../app/lib/crypto_lib/crypto_lib_bg.wasm");
@@ -34,22 +34,19 @@ async function main() {
     }
     const keyHex = bytes_to_hex(key);
 
-    // Compute precontract
-    const precontract = compute_precontract_vareades_v2(fileData, key);
+    const precontract = compute_precontract_values_v2(fileData, key);
     const circuit = new Uint8Array(precontract.circuit_bytes);
     const ct = new Uint8Array(precontract.ct);
     
-    // Evareadate circuit
-    const evareadatedCircuit = evareadate_circuit_v2_wasm(circuit, ct, keyHex);
-    const evareadatedCircuitBytes = evareadatedCircuit.to_bytes();
+    const evaluatedCircuit = evaluate_circuit_v2_wasm(circuit, ct, keyHex);
+    const evaluatedCircuitBytes = evaluatedCircuit.to_bytes();
 
-    // Test with challenge = 259 (gate du milieu, comme dans le test)
     const challenge = 259;
-    console.log(`🧪 TEST: compute_proofs_v2 avec challenge=${challenge}\n`);
+    console.log(`🧪 TEST: compute_proofs_v2 with challenge=${challenge}\n`);
     
     const proofs = compute_proofs_v2(
         circuit,
-        evareadatedCircuitBytes,
+        evaluatedCircuitBytes,
         ct,
         challenge
     );
@@ -58,23 +55,22 @@ async function main() {
     console.log(`   - proof1 layers: ${proofs.proof1.length}`);
     console.log(`   - proof2 layers: ${proofs.proof2.length}`);
     if (proofs.proof2.length > 0) {
-        console.log(`   - proof2[0] length: ${proofs.proof2[0]?.length || 0} éléments`);
-        console.log(`   ⚠️  proof2 est generated! Il faut verify s'il est avec ou sans IV.`);
+        console.log(`   - proof2[0] length: ${proofs.proof2[0]?.length || 0} elements`);
+        console.log(`   ⚠️  proof2 is generated! Need to verify if it's with or without IV.`);
     } else {
-        console.log(`   ✅ proof2 est vide (pas de blocs de ciphertext utilisés)`);
-        console.log(`   ✅ C'est pourquoi compute_proofs_v2 fonctionne sans offset!`);
+        console.log(`   ✅ proof2 is empty (no ciphertext blocks used)`);
+        console.log(`   ✅ This is why compute_proofs_v2 works without offset!`);
     }
     console.log(`   - proof3 layers: ${proofs.proof3.length}`);
     console.log(`   - proof_ext layers: ${proofs.proof_ext.length}`);
     console.log();
 
-    // Test with challenge = 1 (première gate, comme compute_proofs_left_v2)
     const challenge1 = 1;
-    console.log(`🧪 TEST: compute_proofs_v2 avec challenge=${challenge1}\n`);
+    console.log(`🧪 TEST: compute_proofs_v2 with challenge=${challenge1}\n`);
     
     const proofs1 = compute_proofs_v2(
         circuit,
-        evareadatedCircuitBytes,
+        evaluatedCircuitBytes,
         ct,
         challenge1
     );
@@ -83,18 +79,18 @@ async function main() {
     console.log(`   - proof1 layers: ${proofs1.proof1.length}`);
     console.log(`   - proof2 layers: ${proofs1.proof2.length}`);
     if (proofs1.proof2.length > 0) {
-        console.log(`   - proof2[0] length: ${proofs1.proof2[0]?.length || 0} éléments`);
-        console.log(`   ⚠️  proof2 est generated pour challenge=1!`);
-        console.log(`   ⚠️  Il faut verify si compute_proofs_v2 génère proof2 AVEC ou SANS IV.`);
+        console.log(`   - proof2[0] length: ${proofs1.proof2[0]?.length || 0} elements`);
+        console.log(`   ⚠️  proof2 is generated for challenge=1!`);
+        console.log(`   ⚠️  Need to verify if compute_proofs_v2 generates proof2 WITH or WITHOUT IV.`);
     } else {
-        console.log(`   ✅ proof2 est vide`);
+        console.log(`   ✅ proof2 is empty`);
     }
     console.log(`   - proof3 layers: ${proofs1.proof3.length}`);
     console.log(`   - proof_ext layers: ${proofs1.proof_ext.length}`);
     console.log();
 
     console.log("=".repeat(80));
-    console.log("✅ VERIFICATION completedE");
+    console.log("✅ VERIFICATION COMPLETED");
     console.log("=".repeat(80));
 }
 

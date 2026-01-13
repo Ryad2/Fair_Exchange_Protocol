@@ -15,54 +15,51 @@ async function main() {
     const contract = new ethers.Contract(optimisticAddr, OptimisticSOXAccountABI.abi, provider);
 
     console.log("\n" + "=".repeat(80));
-    console.log("🔍 retrieval DU CONTRAT DE DISPUTE");
+    console.log("🔍 RETRIEVING DISPUTE CONTRACT");
     console.log("=".repeat(80));
-    console.log(`\n📋 Contrat OptimisticSOXAccount: ${optimisticAddr}\n`);
+    console.log(`\n📋 OptimisticSOXAccount contract: ${optimisticAddr}\n`);
 
     try {
-        // verify si le contrat existe
         const code = await provider.getCode(optimisticAddr);
         if (!code || code === "0x") {
-            console.error("❌ Aucun contrat found à cette adresse!");
+            console.error("❌ No contract found at this address!");
             process.exit(1);
         }
-        console.log("✅ Contrat found (code:", code.length, "bytes)\n");
+        console.log("✅ Contract found (code:", code.length, "bytes)\n");
 
-        // Récupérer l'adresse du contrat de dispute
         const disputeAddr = await contract.disputeContract();
-        console.log(`🔹 Adresse du contrat de dispute: ${disputeAddr}`);
+        console.log(`🔹 Dispute contract address: ${disputeAddr}`);
         
         if (disputeAddr === ethers.ZeroAddress) {
-            console.log("❌ Aucun contrat de dispute deployed!");
+            console.log("❌ No dispute contract deployed!");
             process.exit(1);
         }
 
-        // verify l'état du contrat OptimisticSOXAccount
         const state = await contract.currState();
         const stateNames = [
-            "WaitPayment",      // 0
-            "WaitKey",          // 1
-            "WaitSB",           // 2
-            "WaitSV",           // 3
-            "WaitDisputeStart", // 4
-            "InDispute",        // 5
-            "End"               // 6
+            "WaitPayment",
+            "WaitKey",
+            "WaitSB",
+            "WaitSV",
+            "WaitDisputeStart",
+            "InDispute",
+            "End"
         ];
         const stateNum = Number(state);
-        console.log(`🔹 État du contrat OptimisticSOXAccount: ${stateNum} (${stateNames[stateNum] || "UNKNOWN"})`);
+        console.log(`🔹 OptimisticSOXAccount contract state: ${stateNum} (${stateNames[stateNum] || "UNKNOWN"})`);
 
         if (stateNum !== 5) {
-            console.log("⚠️  Le contrat n'est pas en état InDispute (5)");
+            console.log("⚠️  Contract is not in InDispute state (5)");
         } else {
-            console.log("✅ Le contrat est en dispute\n");
-            console.log(`\n💡 Pour diagnostiquer le contrat de dispute, exécutez:`);
+            console.log("✅ Contract is in dispute\n");
+            console.log(`\n💡 To diagnose the dispute contract, run:`);
             console.log(`   DISPUTE_ADDR=${disputeAddr} npx hardhat run scripts/diagnoseProofSubmission.ts`);
         }
 
     } catch (error: any) {
-        console.error(`\n❌ error:`, error.message);
+        console.error(`\n❌ Error:`, error.message);
         if (error.data) {
-            console.error(`   Données d'error:`, error.data);
+            console.error(`   Error data:`, error.data);
         }
     }
 
@@ -75,5 +72,3 @@ main()
         console.error(error);
         process.exit(1);
     });
-
-

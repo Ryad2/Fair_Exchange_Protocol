@@ -3,8 +3,8 @@ import {
     initSync,
     compute_proofs_left_v2,
     bytes_to_hex,
-    compute_precontract_vareades_v2,
-    evareadate_circuit_v2_wasm,
+    compute_precontract_values_v2,
+    evaluate_circuit_v2_wasm,
 } from "../../app/lib/crypto_lib/crypto_lib";
 import { join } from "path";
 import { readFileSync } from "fs";
@@ -14,9 +14,9 @@ import { readFileSync } from "fs";
  * Teste chaque STEP individuellement pour identifier le problème
  */
 async function main() {
-    console.log("🔍 investigation: Pourquoi verifyCommitmentLeft retourne false");
+    console.log("🔍 INVESTIGATION: Why verifyCommitmentLeft returns false");
     console.log("=".repeat(80));
-    console.log("📁 Fichier: test_65bytes.bin\n");
+    console.log("📁 File: test_65bytes.bin\n");
 
     // Initialize WASM
     const wasmPath = join(__dirname, "../../app/lib/crypto_lib/crypto_lib_bg.wasm");
@@ -27,7 +27,7 @@ async function main() {
     // Read test file
     const testFilePath = join(__dirname, "../../../test_65bytes.bin");
     const fileData = readFileSync(testFilePath);
-    console.log(`✅ Fichier read: ${fileData.length} bytes\n`);
+    console.log(`✅ File read: ${fileData.length} bytes\n`);
 
     // Generate a test key (16 bytes)
     const key = new Uint8Array(16);
@@ -37,45 +37,41 @@ async function main() {
     const keyHex = bytes_to_hex(key);
     console.log(`📊 AES Key: ${keyHex}\n`);
 
-    // Compute precontract
-    console.log("🔢 Calcul du precontract...");
-    const precontract = compute_precontract_vareades_v2(fileData, key);
+    console.log("🔢 Computing precontract...");
+    const precontract = compute_precontract_values_v2(fileData, key);
     const circuit = new Uint8Array(precontract.circuit_bytes);
     const ct = new Uint8Array(precontract.ct);
     const commitment = precontract.commitment;
-    const openingVareade = precontract.commitment.o;
+    const openingValue = precontract.commitment.o;
     
     console.log(`✅ Precontract calculated:`);
     console.log(`   - Commitment: ${bytes_to_hex(commitment.c)}`);
-    console.log(`   - Opening vareade: ${bytes_to_hex(openingVareade)}\n`);
+    console.log(`   - Opening value: ${bytes_to_hex(openingValue)}\n`);
 
-    // Evareadate circuit
-    console.log("🔢 Évareadation du circuit...");
-    const evareadatedCircuit = evareadate_circuit_v2_wasm(circuit, ct, keyHex);
-    const evareadatedCircuitBytes = evareadatedCircuit.to_bytes();
-    console.log(`✅ Circuit evareadated (${evareadatedCircuitBytes.length} bytes)\n`);
+    console.log("🔢 Evaluating circuit...");
+    const evaluatedCircuit = evaluate_circuit_v2_wasm(circuit, ct, keyHex);
+    const evaluatedCircuitBytes = evaluatedCircuit.to_bytes();
+    console.log(`✅ Circuit evaluated (${evaluatedCircuitBytes.length} bytes)\n`);
 
-    // Calculate proofs for gate 1
-    const gateNum = 1; // Gate 1 (1-indexed, notation papier)
-    console.log(`📐 Calcul des preuves pour gate ${gateNum} (1-indexed) avec WASM...\n`);
+    const gateNum = 1;
+    console.log(`📐 Calculating proofs for gate ${gateNum} (1-indexed) with WASM...\n`);
 
     const proofs = compute_proofs_left_v2(
         circuit,
-        evareadatedCircuitBytes,
+        evaluatedCircuitBytes,
         ct,
-        gateNum // 1-indexed, WASM convertit en interne
+        gateNum
     );
-    console.log(`✅ Preuves calculatedes par WASM:`);
+    console.log(`✅ Proofs calculated by WASM:`);
     console.log(`   - gate_bytes: ${proofs.gate_bytes.length} bytes`);
-    console.log(`   - vareades: ${proofs.vareades.length} éléments`);
+    console.log(`   - values: ${proofs.values.length} elements`);
     console.log(`   - curr_acc: ${ethers.hexlify(new Uint8Array(proofs.curr_acc))}`);
     console.log(`   - proof1: ${proofs.proof1.length} layers`);
     console.log(`   - proof2: ${proofs.proof2.length} layers`);
     console.log(`   - proof_ext: ${proofs.proof_ext.length} layers\n`);
 
-    // Prepare arguments for contract
     const gateBytesArray = new Uint8Array(proofs.gate_bytes);
-    const vareadesArray = proofs.vareades.map((v: Uint8Array) => new Uint8Array(v));
+    const valuesArray = proofs.values.map((v: Uint8Array) => new Uint8Array(v));
     const currAccArray = new Uint8Array(proofs.curr_acc);
     const proof1Array = proofs.proof1.map((level: Uint8Array[]) =>
         level.map((v: Uint8Array) => ethers.hexlify(new Uint8Array(v)))
@@ -87,11 +83,10 @@ async function main() {
         level.map((v: Uint8Array) => ethers.hexlify(new Uint8Array(v)))
     );
 
-    const openingVareadeBytes = new Uint8Array(openingVareade);
-    const openingVareadeHex = ethers.hexlify(openingVareadeBytes);
+    const openingValueBytes = new Uint8Array(openingValue);
+    const openingValueHex = ethers.hexlify(openingValueBytes);
 
-    // Deploy test contracts
-    console.log("📦 DEPLOYMENT des contrats de test...\n");
+    console.log("📦 Deploying test contracts...\n");
     
     const [deployer] = await ethers.getSigners();
     
@@ -114,15 +109,15 @@ async function main() {
     const commitmentOpener = await CommitmentOpenerFactory.deploy();
     await commitmentOpener.waitForDeployment();
     
-    const SHA256EvareadatorFactory = await ethers.getContractFactory("SHA256Evareadator");
-    const sha256Evareadator = await SHA256EvareadatorFactory.deploy();
-    await sha256Evareadator.waitForDeployment();
+    const SHA256EvaluatorFactory = await ethers.getContractFactory("SHA256Evaluator");
+    const sha256Evaluator = await SHA256EvaluatorFactory.deploy();
+    await sha256Evaluator.waitForDeployment();
     
     const DisputeDeployerFactory = await ethers.getContractFactory("DisputeDeployer", {
         libraries: {
             AccumulatorVerifier: await accumulatorVerifier.getAddress(),
             CommitmentOpener: await commitmentOpener.getAddress(),
-            SHA256Evareadator: await sha256Evareadator.getAddress(),
+            SHA256Evaluator: await sha256Evaluator.getAddress(),
         },
     });
     const disputeDeployer = await DisputeDeployerFactory.deploy();
