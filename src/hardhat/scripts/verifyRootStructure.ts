@@ -11,9 +11,9 @@ import { readFileSync } from "fs";
  * Script pour verify si le root hCt increadt l'IV ou non
  */
 async function main() {
-    console.log("🔍 VERIFICATION: Structure du root hCt");
+    console.log("🔍 VERIFICATION: Root hCt structure");
     console.log("=".repeat(80));
-    console.log("📁 Fichier: test_65bytes.bin\n");
+    console.log("📁 File: test_65bytes.bin\n");
 
     // Initialize WASM
     const wasmPath = join(__dirname, "../../app/lib/crypto_lib/crypto_lib_bg.wasm");
@@ -63,13 +63,13 @@ async function main() {
         start = end;
     }
 
-    console.log("📊 BLOCS:");
-    console.log(`   Avec IV: ${ctBlocksWithIV.length} blocs`);
+    console.log("📊 BLOCKS:");
+    console.log(`   With IV: ${ctBlocksWithIV.length} blocks`);
     for (let i = 0; i < ctBlocksWithIV.length; i++) {
         const blockKeccak = ethers.keccak256(ethers.hexlify(ctBlocksWithIV[i]));
         console.log(`     [${i}]: ${blockKeccak.slice(0, 20)}...`);
     }
-    console.log(`   Sans IV: ${ctBlocksWithoutIV.length} blocs`);
+    console.log(`   Without IV: ${ctBlocksWithoutIV.length} blocks`);
     for (let i = 0; i < ctBlocksWithoutIV.length; i++) {
         const blockKeccak = ethers.keccak256(ethers.hexlify(ctBlocksWithoutIV[i]));
         console.log(`     [${i}]: ${blockKeccak.slice(0, 20)}...`);

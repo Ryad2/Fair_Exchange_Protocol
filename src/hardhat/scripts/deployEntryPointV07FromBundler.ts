@@ -24,12 +24,12 @@ async function main() {
     // verify si déjà deployed
     const existingCode = await provider.getCode(ENTRY_POINT_V07_ADDRESS);
     if (existingCode && existingCode !== "0x" && existingCode.length > 100) {
-        console.log("✅ EntryPoint v0.7 déjà deployed à:", ENTRY_POINT_V07_ADDRESS);
+        console.log("✅ EntryPoint v0.7 already deployed at:", ENTRY_POINT_V07_ADDRESS);
         updateConfig(ENTRY_POINT_V07_ADDRESS);
         return;
     }
 
-    console.log("📋 Lecture du CREATE2 call depuis le bundler...");
+    console.log("📋 Reading CREATE2 call from bundler...");
     
     // Lire le CREATE2 call depuis les constantes du bundler
     const constantsPath = path.join(
@@ -57,13 +57,13 @@ async function main() {
     // verify si le deterministic deployer existe
     const deployerCode = await provider.getCode(DETERMINISTIC_DEPLOYER);
     if (!deployerCode || deployerCode === "0x") {
-        console.error("❌ Deterministic Deployer non found à", DETERMINISTIC_DEPLOYER);
-        console.error("   Le deterministic deployer doit être deployed d'abord");
-        console.error("   Adresse standard: 0x4e59b44847b379578588920ca78fbf26c0b4956c");
+        console.error("❌ Deterministic Deployer not found at", DETERMINISTIC_DEPLOYER);
+        console.error("   Deterministic deployer must be deployed first");
+        console.error("   Standard address: 0x4e59b44847b379578588920ca78fbf26c0b4956c");
         process.exit(1);
     }
 
-    console.log("📤 Envoi du CREATE2 call au deterministic deployer...");
+    console.log("📤 Sending CREATE2 call to deterministic deployer...");
     console.log("   Deployer:", DETERMINISTIC_DEPLOYER);
     console.log("   Target address:", ENTRY_POINT_V07_ADDRESS);
     console.log("");

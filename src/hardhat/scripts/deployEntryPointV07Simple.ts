@@ -75,7 +75,7 @@ function updateConfig(entryPointAddress: string) {
         const configContent = fs.readFileSync(bundlerConfigPath, "utf-8");
         bundlerConfig = JSON.parse(configContent);
     } catch (error: any) {
-        console.warn("⚠️  unable de lire la configuration du bundler:", error.message);
+        console.warn("⚠️  Unable to read bundler configuration:", error.message);
     }
 
     bundlerConfig.entrypoints = entryPointAddress;
