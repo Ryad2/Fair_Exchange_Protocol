@@ -8,8 +8,8 @@ function updateBundlerConfig(configPath: string, address: string) {
         const configContent = fs.readFileSync(configPath, "utf-8");
         bundlerConfig = JSON.parse(configContent);
     } catch (error: any) {
-        console.warn("⚠️  Impossible de lire la configuration du bundler:", error.message);
-        console.warn("   Le fichier sera créé.");
+        console.warn("⚠️  Unable to read bundler configuration:", error.message);
+        console.warn("   File will be created.");
     }
 
     bundlerConfig["entrypoint-simulation-contract-v8"] = address;
@@ -21,10 +21,10 @@ function updateBundlerConfig(configPath: string, address: string) {
             JSON.stringify(bundlerConfig, null, 4) + "\n",
             "utf-8"
         );
-        console.log("✅ Config bundler mise à jour:", configPath);
+        console.log("✅ Bundler config updated:", configPath);
         console.log(`   "entrypoint-simulation-contract-v8": "${address}"`);
     } catch (error: any) {
-        console.error("❌ Erreur lors de l'écriture de config.local.json:", error.message);
+        console.error("❌ Error writing config.local.json:", error.message);
     }
 }
 
@@ -49,10 +49,10 @@ function updateEnv(envPath: string, address: string) {
         }
 
         fs.writeFileSync(envPath, envContent, "utf-8");
-        console.log("✅ .env.local mise à jour:", envPath);
+        console.log("✅ .env.local updated:", envPath);
     } catch (error: any) {
         console.error(
-            "❌ Erreur lors de la mise à jour de .env.local:",
+            "❌ Error updating .env.local:",
             error.message
         );
     }
