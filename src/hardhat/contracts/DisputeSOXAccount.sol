@@ -6,7 +6,7 @@ import {EvaluatorSOX_V2} from "./EvaluatorSOX_V2.sol";
 import {CommitmentOpener} from "./CommitmentSOX.sol";
 import {OptimisticState, IOptimisticSOX} from "./OptimisticSOXAccount.sol";
 
-// Structure PackedUserOperation utilisée par l'EntryPoint v0.7/v0.8
+// PackedUserOperation structure used by EntryPoint v0.7/v0.8
 struct PackedUserOperation {
     address sender;
     uint256 nonce;
@@ -95,7 +95,7 @@ contract DisputeSOXAccount {
     // =============== ERC-4337 FIELDS ===============
     IEntryPoint public immutable entryPoint;
     
-    // Mapping des signers autorisés pour chaque rôle
+    // Mapping of authorized signers for each role
     address public buyerSigner;
     address public vendorSigner;
     address public buyerDisputeSponsorSigner;
@@ -337,34 +337,19 @@ contract DisputeSOXAccount {
         timeoutIncrement = optimisticContract.timeoutIncrement();
         agreedPrice = optimisticContract.agreedPrice();
 
-        // Vérifier que buyerDisputeSponsor est défini
-        // buyerDisputeSponsor doit être défini car on est dans l'état WaitSV
         if (buyerDisputeSponsor == address(0)) {
-            revert InvalidOptimisticState(); // buyerDisputeSponsor should be set in WaitSV state
+            revert InvalidOptimisticState();
         }
         
-        // CRITIQUE: Utiliser le sponsor explicite si fourni (NE JAMAIS lire depuis optimisticContract
-        // car vendorDisputeSponsor vient d'être défini dans la même transaction et n'est pas encore lisible).
-        // Le paramètre _vendorDisputeSponsor doit être passé explicitement depuis OptimisticSOXAccount
-        // via DisputeDeployer pour éviter le problème de timing dans la même transaction.
         if (_vendorDisputeSponsor != address(0)) {
-            // Utiliser directement le sponsor explicite (passé depuis OptimisticSOXAccount.sendVendorDisputeSponsorFee)
             vendorDisputeSponsor = _vendorDisputeSponsor;
         } else if (_vendorDisputeSponsorSigner != address(0)) {
-            // Fallback sur le signer si le sponsor explicite n'est pas fourni
             vendorDisputeSponsor = _vendorDisputeSponsorSigner;
         } else {
-            // ATTENTION: Lire depuis optimisticContract peut échouer si vendorDisputeSponsor vient d'être défini
-            // dans la même transaction (dans OptimisticSOXAccount.sendVendorDisputeSponsorFee).
-            // Cette branche ne devrait jamais être exécutée si le déploiement est fait correctement.
             vendorDisputeSponsor = optimisticContract.vendorDisputeSponsor();
         }
 
-        // Vérifier que vendorDisputeSponsor est défini (doit être passé explicitement depuis OptimisticSOXAccount)
         if (vendorDisputeSponsor == address(0)) {
-            // Cette erreur signifie que _vendorDisputeSponsor n'a pas été passé correctement au constructeur.
-            // Vérifiez que OptimisticSOXAccount.sendVendorDisputeSponsorFee passe bien msg.sender comme _vendorDisputeSponsor
-            // via DisputeDeployer.deployDispute.
             revert InvalidOptimisticState(); // vendorDisputeSponsor must be set or passed as parameter
         }
 
@@ -378,7 +363,7 @@ contract DisputeSOXAccount {
         b = _numGates + 1;
         chall = (a + b) / 2; // integer division
         
-        // Initialiser les signers (par défaut utiliser les adresses des rôles si signer non spécifié)
+        // Initialize signers (default to role addresses if signer not specified)
         buyerSigner = _buyerSigner != address(0) ? _buyerSigner : buyer;
         vendorSigner = _vendorSigner != address(0) ? _vendorSigner : vendor;
         buyerDisputeSponsorSigner = _buyerDisputeSponsorSigner != address(0) ? _buyerDisputeSponsorSigner : buyerDisputeSponsor;

@@ -163,20 +163,15 @@ contract OptimisticSOXAccount is IOptimisticSOX {
     }
 
     function _isValidUserOpContext(address expected) internal view returns (bool) {
-        // Vérifier que nous sommes dans un contexte de UserOperation valide
-        // Le nonce doit être > 0 (au moins une UserOp a été validée)
         if (nonce == 0) {
             return false;
         }
-        // Le dernier nonce validé doit correspondre au nonce - 1 (car nonce++ a été fait après validation)
         if (lastValidatedNonce != nonce - 1) {
             return false;
         }
-        // Pour sendKey, vérifier que c'est le vendor ou vendorSigner qui a signé
         if (expected == vendor) {
             return lastValidatedSigner == vendorSigner || lastValidatedSigner == vendor;
         }
-        // Pour sendPayment, vérifier que c'est le buyer qui a signé
         if (expected == buyer) {
             return lastValidatedSigner == buyer;
         }
@@ -398,7 +393,6 @@ contract OptimisticSOXAccount is IOptimisticSOX {
 
         // Use DisputeDeployer library to deploy DisputeSOXAccount
         // This avoids including DisputeSOXAccount bytecode in OptimisticSOXAccount
-        // Note: vendorDisputeSponsor est défini ci-dessus, donc il sera lisible dans le constructeur
         disputeContract = DisputeDeployer.deployDispute(
             address(entryPoint),  // _entryPoint (ERC-4337)
             address(this), // _optimisticContract
