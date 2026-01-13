@@ -11,9 +11,9 @@ async function main() {
     const [sponsor, buyer, vendor, sbSponsor, svSponsor] = await hre.ethers.getSigners();
 
     console.log("=".repeat(80));
-    console.log("🧪 TEST DE DÉPLOIEMENT ET DISPUTE");
+    console.log("🧪 DEPLOYMENT AND DISPUTE TEST");
     console.log("=".repeat(80));
-    console.log("\n📋 Comptes:");
+    console.log("\n📋 Accounts:");
     console.log("  Sponsor:", await sponsor.getAddress());
     console.log("  Buyer:", await buyer.getAddress());
     console.log("  Vendor:", await vendor.getAddress());
@@ -21,24 +21,18 @@ async function main() {
     console.log("  Vendor Dispute Sponsor:", await svSponsor.getAddress());
     console.log("");
 
-    // ============================================
-    // ÉTAPE 1: Vérifier/créer EntryPoint v0.8
-    // ============================================
-    console.log("🔐 ÉTAPE 1: Vérification EntryPoint v0.8...");
+    console.log("🔐 STEP 1: Verifying EntryPoint v0.8...");
     const entryPointCode = await ethers.provider.getCode(CANONICAL_ENTRYPOINT_V8);
     if (!entryPointCode || entryPointCode === "0x") {
-        console.log("  ⚠️  EntryPoint v0.8 pas déployé, déploiement...");
-        console.log("  ⚠️  Exécute d'abord: npx hardhat run scripts/deployEntryPointV8.ts --network localhost");
-        console.log("  ⚠️  Ou lance ce script après deployEntryPointV8.ts");
+        console.log("  ⚠️  EntryPoint v0.8 not deployed, deploying...");
+        console.log("  ⚠️  Run first: npx hardhat run scripts/deployEntryPointV8.ts --network localhost");
+        console.log("  ⚠️  Or run this script after deployEntryPointV8.ts");
         process.exit(1);
     }
-    console.log("  ✅ EntryPoint v0.8 trouvé à:", CANONICAL_ENTRYPOINT_V8);
+    console.log("  ✅ EntryPoint v0.8 found at:", CANONICAL_ENTRYPOINT_V8);
     console.log("");
 
-    // ============================================
-    // ÉTAPE 2: Déployer les libraries
-    // ============================================
-    console.log("📚 ÉTAPE 2: Déploiement des libraries...");
+    console.log("📚 STEP 2: Deploying libraries...");
     const AccumulatorVerifierFactory = await ethers.getContractFactory("AccumulatorVerifier");
     const accumulatorVerifier = await AccumulatorVerifierFactory.deploy();
     await accumulatorVerifier.waitForDeployment();
@@ -60,10 +54,7 @@ async function main() {
     console.log("  ✅ DisputeSOXHelpers:", await disputeHelpers.getAddress());
     console.log("");
 
-    // ============================================
-    // ÉTAPE 3: Déployer DisputeDeployer
-    // ============================================
-    console.log("📦 ÉTAPE 3: Déploiement de DisputeDeployer...");
+    console.log("📦 STEP 3: Deploying DisputeDeployer...");
     const DisputeDeployerFactory = await ethers.getContractFactory("DisputeDeployer", {
         libraries: {
             AccumulatorVerifier: await accumulatorVerifier.getAddress(),
@@ -76,10 +67,7 @@ async function main() {
     console.log("  ✅ DisputeDeployer:", await disputeDeployer.getAddress());
     console.log("");
 
-    // ============================================
-    // ÉTAPE 4: Déployer OptimisticSOXAccount
-    // ============================================
-    console.log("🚀 ÉTAPE 4: Déploiement de OptimisticSOXAccount...");
+    console.log("🚀 STEP 4: Deploying OptimisticSOXAccount...");
     const OptimisticSOXAccountFactory = await ethers.getContractFactory("OptimisticSOXAccount", {
         libraries: {
             DisputeDeployer: await disputeDeployer.getAddress(),
@@ -111,85 +99,70 @@ async function main() {
     );
     await optimisticAccount.waitForDeployment();
     const optimisticAddress = await optimisticAccount.getAddress();
-    console.log("  ✅ OptimisticSOXAccount déployé à:", optimisticAddress);
+    console.log("  ✅ OptimisticSOXAccount deployed at:", optimisticAddress);
     console.log("");
 
-    // ============================================
-    // ÉTAPE 5: Flow optimistic (buyer paie, vendor envoie clé)
-    // ============================================
-    console.log("💰 ÉTAPE 5: Flow optimistic...");
+    console.log("💰 STEP 5: Optimistic flow...");
     
-    // Buyer paie
-    console.log("  📤 Buyer envoie le paiement...");
+    console.log("  📤 Buyer sends payment...");
     await optimisticAccount.connect(buyer).sendPayment({
         value: agreedPrice + completionTip,
     });
-    console.log("  ✅ Paiement envoyé");
+    console.log("  ✅ Payment sent");
 
-    // Vendor envoie la clé
-    console.log("  🔑 Vendor envoie la clé...");
+    console.log("  🔑 Vendor sends key...");
     const key = ethers.toUtf8Bytes("test-key-12345");
     await optimisticAccount.connect(vendor).sendKey(key);
-    console.log("  ✅ Clé envoyée");
+    console.log("  ✅ Key sent");
     console.log("");
 
-    // ============================================
-    // ÉTAPE 6: Buyer dispute sponsor paie
-    // ============================================
-    console.log("👤 ÉTAPE 6: Buyer dispute sponsor paie...");
+    console.log("👤 STEP 6: Buyer dispute sponsor pays...");
     const sbAmount = DISPUTE_FEES + disputeTip;
     await optimisticAccount.connect(sbSponsor).sendBuyerDisputeSponsorFee({
         value: sbAmount,
     });
-    console.log("  ✅ Buyer dispute sponsor a payé");
+    console.log("  ✅ Buyer dispute sponsor paid");
     console.log("  ✅ buyerDisputeSponsor:", await optimisticAccount.buyerDisputeSponsor());
     console.log("");
 
-    // ============================================
-    // ÉTAPE 7: TEST - Vendor dispute sponsor paie (LE TEST PRINCIPAL)
-    // ============================================
-    console.log("🧪 ÉTAPE 7: TEST - Vendor dispute sponsor paie...");
-    console.log("  ⚠️  C'est ici que la correction vendorDisputeSponsor est testée!");
+    console.log("🧪 STEP 7: TEST - Vendor dispute sponsor pays...");
+    console.log("  ⚠️  This is where the vendorDisputeSponsor fix is tested!");
     const svAmount = DISPUTE_FEES + disputeTip + agreedPrice;
-    console.log("  Montant à envoyer:", svAmount.toString(), "wei");
+    console.log("  Amount to send:", svAmount.toString(), "wei");
     
     try {
         const tx = await optimisticAccount.connect(svSponsor).sendVendorDisputeSponsorFee({
             value: svAmount,
         });
-        console.log("  📤 Transaction envoyée, attente de confirmation...");
+        console.log("  📤 Transaction sent, waiting for confirmation...");
         const receipt = await tx.wait();
-        console.log("  ✅ Transaction confirmée!");
+        console.log("  ✅ Transaction confirmed!");
         console.log("  ✅ Hash:", receipt?.hash);
 
-        // Vérifier que le contrat de dispute a été déployé
         const disputeAddress = await optimisticAccount.disputeContract();
-        console.log("  ✅ Dispute contract déployé à:", disputeAddress);
+        console.log("  ✅ Dispute contract deployed at:", disputeAddress);
         
-        // Vérifier que vendorDisputeSponsor est correctement défini
         const vendorDisputeSponsor = await optimisticAccount.vendorDisputeSponsor();
         console.log("  ✅ vendorDisputeSponsor:", vendorDisputeSponsor);
         
         if (vendorDisputeSponsor.toLowerCase() !== (await svSponsor.getAddress()).toLowerCase()) {
             throw new Error(`vendorDisputeSponsor mismatch! Expected ${await svSponsor.getAddress()}, got ${vendorDisputeSponsor}`);
         }
-        console.log("  ✅ vendorDisputeSponsor correspond au sponsor vendor");
+        console.log("  ✅ vendorDisputeSponsor matches vendor sponsor");
 
-        // Vérifier l'état du contrat optimistic
         const state = await optimisticAccount.currState();
-        console.log("  ✅ État OptimisticSOXAccount:", state.toString(), "(5 = InDispute)");
+        console.log("  ✅ OptimisticSOXAccount state:", state.toString(), "(5 = InDispute)");
 
-        // Vérifier que le contrat de dispute est accessible
         const DisputeSOXAccountFactory = await ethers.getContractFactory("DisputeSOXAccount");
         const disputeContract = DisputeSOXAccountFactory.attach(disputeAddress);
         const disputeState = await disputeContract.currState();
-        console.log("  ✅ État DisputeSOXAccount:", disputeState.toString(), "(0 = ChallengeBuyer)");
+        console.log("  ✅ DisputeSOXAccount state:", disputeState.toString(), "(0 = ChallengeBuyer)");
 
         console.log("");
         console.log("=".repeat(80));
-        console.log("✅ SUCCESS! La dispute a été déployée correctement!");
+        console.log("✅ SUCCESS! Dispute deployed correctly!");
         console.log("=".repeat(80));
-        console.log("\n📊 Résumé:");
+        console.log("\n📊 Summary:");
         console.log("  OptimisticSOXAccount:", optimisticAddress);
         console.log("  DisputeSOXAccount:", disputeAddress);
         console.log("  EntryPoint:", CANONICAL_ENTRYPOINT_V8);
@@ -200,19 +173,19 @@ async function main() {
     } catch (error: any) {
         console.log("");
         console.log("=".repeat(80));
-        console.log("❌ ERREUR lors du déploiement de la dispute!");
+        console.log("❌ ERROR during dispute deployment!");
         console.log("=".repeat(80));
-        console.log("\nErreur:", error.message);
+        console.log("\nError:", error.message);
         if (error.reason) {
-            console.log("Raison:", error.reason);
+            console.log("Reason:", error.reason);
         }
         if (error.data) {
             console.log("Data:", error.data);
         }
-        console.log("\n💡 Vérifications:");
-        console.log("  - EntryPoint v0.8 est déployé à", CANONICAL_ENTRYPOINT_V8);
-        console.log("  - Le code de DisputeSOXAccount a été compilé avec la correction vendorDisputeSponsor");
-        console.log("  - DisputeDeployer a été redéployé avec le nouveau bytecode");
+        console.log("\n💡 Verifications:");
+        console.log("  - EntryPoint v0.8 is deployed at", CANONICAL_ENTRYPOINT_V8);
+        console.log("  - DisputeSOXAccount code has been compiled with vendorDisputeSponsor fix");
+        console.log("  - DisputeDeployer has been redeployed with new bytecode");
         console.log("");
         process.exit(1);
     }

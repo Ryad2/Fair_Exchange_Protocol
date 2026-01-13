@@ -52,11 +52,11 @@ async function main() {
     
     console.log("📋 Informations du vendor:");
     console.log("   Vendor address (depuis private key):", vendorAddress);
-    console.log("   Correspond au vendor du contrat?", vendorAddress.toLowerCase() === vendor.toLowerCase());
-    console.log("   Correspond au vendorSigner?", vendorAddress.toLowerCase() === vendorSigner.toLowerCase());
+    console.log("   matches au vendor du contrat?", vendorAddress.toLowerCase() === vendor.toLowerCase());
+    console.log("   matches au vendorSigner?", vendorAddress.toLowerCase() === vendorSigner.toLowerCase());
     console.log("");
     
-    // Vérifier si c'est une session key
+    // verify si c'est une session key
     const isSessionKey = await contract.sessionKeys(vendorAddress);
     console.log("📋 Session key:");
     console.log("   Est une session key autorisée?", isSessionKey);
@@ -64,17 +64,17 @@ async function main() {
     
     // Diagnostic
     if (vendorAddress.toLowerCase() === vendorSigner.toLowerCase()) {
-        console.log("✅ Le vendorSigner correspond déjà au vendor!");
+        console.log("✅ Le vendorSigner matches déjà au vendor!");
         console.log("   Le problème pourrait être ailleurs (signature, hash, etc.)");
     } else if (isSessionKey) {
         console.log("✅ Le vendor est une session key autorisée!");
         console.log("   Le problème pourrait être ailleurs (signature, hash, etc.)");
     } else {
         console.log("❌ PROBLÈME DÉTECTÉ:");
-        console.log("   Le vendorSigner ne correspond pas au vendor et ce n'est pas une session key!");
+        console.log("   Le vendorSigner ne matches pas au vendor et ce n'est pas une session key!");
         console.log("");
-        console.log("💡 Solutions possibles:");
-        console.log("   1. Mettre à jour le vendorSigner pour qu'il corresponde au vendor");
+        console.log("💡 Soreadtions possibles:");
+        console.log("   1. Mettre à jour le vendorSigner pour qu'il matchese au vendor");
         console.log("   2. Ajouter le vendor comme session key");
         console.log("");
         
@@ -91,17 +91,17 @@ async function main() {
             
             console.log("   Option 2: Ajouter comme session key (recommandé)...");
             const addSessionKeyTx = await contract.connect(sponsor).addSessionKey(vendorAddress);
-            console.log("   Transaction envoyée:", addSessionKeyTx.hash);
+            console.log("   Transaction sente:", addSessionKeyTx.hash);
             const receipt = await addSessionKeyTx.wait();
-            console.log("   ✅ Session key ajoutée avec succès!");
+            console.log("   ✅ Session key addede avec success!");
             console.log("   Block:", receipt?.blockNumber);
             console.log("");
             console.log("📋 Nouvel état:");
             const newIsSessionKey = await contract.sessionKeys(vendorAddress);
             console.log("   Est une session key autorisée?", newIsSessionKey);
         } catch (error: any) {
-            console.error("   ❌ Erreur lors de l'ajout de la session key:", error.message);
-            if (error.message?.includes("Only sponsor")) {
+            console.error("   ❌ error lors de l'ajout de la session key:", error.message);
+            if (error.message?.increaddes("Only sponsor")) {
                 console.error("   ⚠️  Seul le sponsor peut ajouter des session keys");
             }
         }
@@ -109,7 +109,7 @@ async function main() {
     
     console.log("");
     console.log("=".repeat(80));
-    console.log("✅ Diagnostic terminé");
+    console.log("✅ Diagnostic completed");
     console.log("=".repeat(80));
 }
 

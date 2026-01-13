@@ -10,7 +10,7 @@ async function main() {
     const [deployer] = await ethers.getSigners();
 
     console.log("=".repeat(80));
-    console.log("🚀 DÉPLOIEMENT ENTRYPOINT V0.7 (Pour PackedUserOperation)");
+    console.log("🚀 DEPLOYMENT ENTRYPOINT V0.7 (Pour PackedUserOperation)");
     console.log("=".repeat(80));
     console.log("");
     console.log("Deployer:", await deployer.getAddress());
@@ -28,7 +28,7 @@ async function main() {
         );
     }
 
-    console.log("📋 Déploiement du contrat EntryPoint v0.7...");
+    console.log("📋 DEPLOYMENT du contrat EntryPoint v0.7...");
     
     // Compiler le contrat EntryPoint v0.7
     // Note: On doit utiliser hardhat pour compiler avec les bonnes remappings
@@ -40,22 +40,22 @@ async function main() {
         }
     );
 
-    console.log("   Compilation réussie, déploiement...");
+    console.log("   Compilation succeeded, DEPLOYMENT...");
     const entryPoint = await EntryPointFactory.deploy();
     await entryPoint.waitForDeployment();
 
     const entryPointAddress = await entryPoint.getAddress();
-    console.log("   ✅ EntryPoint v0.7 déployé à:", entryPointAddress);
+    console.log("   ✅ EntryPoint v0.7 deployed à:", entryPointAddress);
     console.log("");
 
-    // Vérifier que c'est bien un EntryPoint v0.7 en testant une fonction
+    // verify que c'est bien un EntryPoint v0.7 en testant une fonction
     try {
         const depositAddress = ethers.ZeroAddress;
         // Test: appeler balanceOf (fonction standard des EntryPoints)
         const balance = await entryPoint.balanceOf(depositAddress);
-        console.log("   ✅ Vérification: balanceOf fonctionne (balance:", balance.toString(), ")");
+        console.log("   ✅ VERIFICATION: balanceOf fonctionne (balance:", balance.toString(), ")");
     } catch (error: any) {
-        console.warn("   ⚠️  Vérification balanceOf échouée:", error.message);
+        console.warn("   ⚠️  VERIFICATION balanceOf failed:", error.message);
     }
     console.log("");
 
@@ -70,8 +70,8 @@ async function main() {
         const configContent = fs.readFileSync(bundlerConfigPath, "utf-8");
         bundlerConfig = JSON.parse(configContent);
     } catch (error: any) {
-        console.warn("⚠️  Impossible de lire la configuration du bundler:", error.message);
-        console.warn("   Le fichier sera créé.");
+        console.warn("⚠️  unable de lire la configuration du bundler:", error.message);
+        console.warn("   Le fichier sera created.");
     }
 
     bundlerConfig.entrypoints = entryPointAddress;
@@ -82,10 +82,10 @@ async function main() {
             JSON.stringify(bundlerConfig, null, 4) + "\n",
             "utf-8"
         );
-        console.log("✅ Config bundler mise à jour:", bundlerConfigPath);
+        console.log("✅ Bundler config updated:", bundlerConfigPath);
         console.log(`   "entrypoints": "${entryPointAddress}"`);
     } catch (error: any) {
-        console.error("❌ Erreur lors de l'écriture de config.local.json:", error.message);
+        console.error("❌ error lors de l'écriture de config.local.json:", error.message);
     }
 
     // Mettre à jour .env.local
@@ -97,7 +97,7 @@ async function main() {
         }
 
         const line = `NEXT_PUBLIC_ENTRY_POINT=${entryPointAddress}`;
-        if (envContent.includes("NEXT_PUBLIC_ENTRY_POINT=")) {
+        if (envContent.increaddes("NEXT_PUBLIC_ENTRY_POINT=")) {
             envContent = envContent.replace(/^NEXT_PUBLIC_ENTRY_POINT=.*$/m, line);
         } else {
             envContent = envContent.trimEnd();
@@ -105,14 +105,14 @@ async function main() {
         }
 
         fs.writeFileSync(envPath, envContent, "utf-8");
-        console.log("✅ .env.local mise à jour:", envPath);
+        console.log("✅ .env.local updated:", envPath);
     } catch (error: any) {
-        console.error("❌ Erreur lors de la mise à jour de .env.local:", error.message);
+        console.error("❌ error lors de la mise à jour de .env.local:", error.message);
     }
 
     console.log("");
     console.log("=".repeat(80));
-    console.log("✅ DÉPLOIEMENT TERMINÉ");
+    console.log("✅ DEPLOYMENT completed");
     console.log("=".repeat(80));
     console.log("");
     console.log("⚠️  IMPORTANT: Redémarrez le bundler pour qu'il utilise cette nouvelle adresse!");

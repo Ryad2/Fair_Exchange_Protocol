@@ -15,29 +15,29 @@ async function main() {
     const contract = new ethers.Contract(optimisticAddr, OptimisticSOXAccountABI.abi, provider);
 
     console.log("\n" + "=".repeat(80));
-    console.log("🔍 RÉCUPÉRATION DU CONTRAT DE DISPUTE");
+    console.log("🔍 retrieval DU CONTRAT DE DISPUTE");
     console.log("=".repeat(80));
     console.log(`\n📋 Contrat OptimisticSOXAccount: ${optimisticAddr}\n`);
 
     try {
-        // Vérifier si le contrat existe
+        // verify si le contrat existe
         const code = await provider.getCode(optimisticAddr);
         if (!code || code === "0x") {
-            console.error("❌ Aucun contrat trouvé à cette adresse!");
+            console.error("❌ Aucun contrat found à cette adresse!");
             process.exit(1);
         }
-        console.log("✅ Contrat trouvé (code:", code.length, "bytes)\n");
+        console.log("✅ Contrat found (code:", code.length, "bytes)\n");
 
         // Récupérer l'adresse du contrat de dispute
         const disputeAddr = await contract.disputeContract();
         console.log(`🔹 Adresse du contrat de dispute: ${disputeAddr}`);
         
         if (disputeAddr === ethers.ZeroAddress) {
-            console.log("❌ Aucun contrat de dispute déployé!");
+            console.log("❌ Aucun contrat de dispute deployed!");
             process.exit(1);
         }
 
-        // Vérifier l'état du contrat OptimisticSOXAccount
+        // verify l'état du contrat OptimisticSOXAccount
         const state = await contract.currState();
         const stateNames = [
             "WaitPayment",      // 0
@@ -60,9 +60,9 @@ async function main() {
         }
 
     } catch (error: any) {
-        console.error(`\n❌ Erreur:`, error.message);
+        console.error(`\n❌ error:`, error.message);
         if (error.data) {
-            console.error(`   Données d'erreur:`, error.data);
+            console.error(`   Données d'error:`, error.data);
         }
     }
 

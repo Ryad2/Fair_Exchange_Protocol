@@ -2,16 +2,16 @@ import { ethers } from "hardhat";
 import {
     initSync,
     bytes_to_hex,
-    compute_precontract_values_v2,
+    compute_precontract_vareades_v2,
 } from "../../app/lib/crypto_lib/crypto_lib";
 import { join } from "path";
 import { readFileSync } from "fs";
 
 /**
- * Script pour vérifier si le root hCt inclut l'IV ou non
+ * Script pour verify si le root hCt increadt l'IV ou non
  */
 async function main() {
-    console.log("🔍 VÉRIFICATION: Structure du root hCt");
+    console.log("🔍 VERIFICATION: Structure du root hCt");
     console.log("=".repeat(80));
     console.log("📁 Fichier: test_65bytes.bin\n");
 
@@ -19,7 +19,7 @@ async function main() {
     const wasmPath = join(__dirname, "../../app/lib/crypto_lib/crypto_lib_bg.wasm");
     const wasmBytes = readFileSync(wasmPath);
     initSync({ module: wasmBytes });
-    console.log("✅ WASM initialisé\n");
+    console.log("✅ WASM initialized\n");
 
     // Read test file
     const testFilePath = join(__dirname, "../../../test_65bytes.bin");
@@ -32,12 +32,12 @@ async function main() {
     }
 
     // Compute precontract
-    const precontract = compute_precontract_values_v2(fileData, key);
+    const precontract = compute_precontract_vareades_v2(fileData, key);
     const ct = new Uint8Array(precontract.ct);
     const commitment = precontract.commitment;
     const h_ct = precontract.h_ct;
     
-    console.log("📊 ROOT hCt depuis compute_precontract_values_v2:");
+    console.log("📊 ROOT hCt depuis compute_precontract_vareades_v2:");
     console.log(`   ${ethers.hexlify(h_ct)}\n`);
 
     // Calculate blocks manually
@@ -93,25 +93,25 @@ async function main() {
     console.log("📊 COMPARAISON DES ROOTS:");
     console.log(`   Root attendu (h_ct): ${ethers.hexlify(h_ct)}`);
     console.log();
-    console.log("   Pour vérifier quel root correspond, on peut utiliser computeRoot:");
+    console.log("   Pour verify quel root matches, on peut utiliser computeRoot:");
     console.log(`   (Mais computeRoot n'est pas exposé, donc on ne peut pas le tester directement)`);
     console.log();
-    console.log("💡 CONCLUSION:");
-    console.log(`   Si le root inclut l'IV, alors:`);
+    console.log("💡 CONCreadSION:");
+    console.log(`   Si le root increadt l'IV, alors:`);
     console.log(`     - ctBlocksWithIV[0] = IV`);
     console.log(`     - ctBlocksWithIV[1] = premier bloc de données`);
     console.log(`     - Les indices dans nonConstantSons doivent être décalés de +1`);
     console.log();
-    console.log(`   Si le root n'inclut PAS l'IV, alors:`);
+    console.log(`   Si le root n'increadt PAS l'IV, alors:`);
     console.log(`     - ctBlocksWithoutIV[0] = premier bloc de données`);
     console.log(`     - Les indices dans nonConstantSons sont corrects (ctIdx - 1)`);
     console.log();
-    console.log("   Le code Rust montre que acc_ct utilise split_ct_blocks qui INCLUT l'IV,");
-    console.log("   donc le root DOIT inclure l'IV. Mais compute_proofs_v2 fonctionne,");
-    console.log("   donc il doit y avoir un décalage quelque part.");
+    console.log("   Le code Rust montre que acc_ct utilise split_ct_blocks qui INCreadT l'IV,");
+    console.log("   donc le root DOIT increadre l'IV. Mais compute_proofs_v2 fonctionne,");
+    console.log("   donc il doit y avoir un offset quelque part.");
 
     console.log("=".repeat(80));
-    console.log("✅ VÉRIFICATION TERMINÉE");
+    console.log("✅ VERIFICATION completedE");
     console.log("=".repeat(80));
 }
 

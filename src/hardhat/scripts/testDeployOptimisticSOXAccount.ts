@@ -8,7 +8,7 @@ async function main() {
     const provider = ethers.provider;
 
     console.log("=".repeat(80));
-    console.log("🧪 Test de déploiement et flow complet OptimisticSOXAccount");
+    console.log("🧪 OptimisticSOXAccount deployment and full flow test");
     console.log("=".repeat(80));
     console.log("");
     console.log("Signers:");
@@ -19,8 +19,7 @@ async function main() {
     console.log("  SV Sponsor:", await svSponsor.getAddress());
     console.log("");
 
-    // Déploiement des libraries
-    console.log("📚 Déploiement des libraries...");
+    console.log("📚 Deploying libraries...");
     const AccumulatorVerifierFactory = await ethers.getContractFactory("AccumulatorVerifier");
     const accumulatorVerifier = await AccumulatorVerifierFactory.deploy();
     await accumulatorVerifier.waitForDeployment();
@@ -62,9 +61,8 @@ async function main() {
     await disputeHelpers.waitForDeployment();
     console.log("  ✅ DisputeSOXHelpers:", await disputeHelpers.getAddress());
 
-    // Déploiement de DisputeDeployer
     console.log("");
-    console.log("📦 Déploiement de DisputeDeployer...");
+    console.log("📦 Deploying DisputeDeployer...");
     const DisputeDeployerFactory = await ethers.getContractFactory("DisputeDeployer", {
         libraries: {
             AccumulatorVerifier: await accumulatorVerifier.getAddress(),
@@ -76,9 +74,8 @@ async function main() {
     await disputeDeployer.waitForDeployment();
     console.log("  ✅ DisputeDeployer:", await disputeDeployer.getAddress());
 
-    // Déploiement de l'EntryPoint
     console.log("");
-    console.log("📦 Déploiement de l'EntryPoint...");
+    console.log("📦 Deploying EntryPoint...");
     const EntryPointFactory = new ethers.ContractFactory(
         EntryPointArtifact.abi,
         EntryPointArtifact.bytecode,
@@ -87,11 +84,10 @@ async function main() {
     const entryPoint = await EntryPointFactory.deploy();
     await entryPoint.waitForDeployment();
     const entryPointAddress = await entryPoint.getAddress();
-    console.log("  ✅ EntryPoint déployé à:", entryPointAddress);
+    console.log("  ✅ EntryPoint deployed at:", entryPointAddress);
 
-    // Déploiement de OptimisticSOXAccount
     console.log("");
-    console.log("📦 Déploiement de OptimisticSOXAccount...");
+    console.log("📦 Deploying OptimisticSOXAccount...");
     const OptimisticSOXAccountFactory = await ethers.getContractFactory(
         "OptimisticSOXAccount",
         {
@@ -128,122 +124,112 @@ async function main() {
     );
     await optimisticAccount.waitForDeployment();
     const contractAddress = await optimisticAccount.getAddress();
-    console.log("  ✅ OptimisticSOXAccount déployé à:", contractAddress);
+    console.log("  ✅ OptimisticSOXAccount deployed at:", contractAddress);
     console.log("");
 
-    // Vérification du type de contrat
-    console.log("🔍 Vérification du type de contrat...");
+    console.log("🔍 Verifying contract type...");
     const OptimisticSOXAccountArtifact = await hre.artifacts.readArtifact("OptimisticSOXAccount");
     const contract = new ethers.Contract(contractAddress, OptimisticSOXAccountArtifact.abi, provider);
     const entryPointFromContract = await contract.entryPoint();
     const isOptimisticSOXAccount = entryPointFromContract !== ethers.ZeroAddress;
-    console.log("  EntryPoint dans le contrat:", entryPointFromContract);
-    console.log("  Type de contrat:", isOptimisticSOXAccount ? "OptimisticSOXAccount ✅" : "OptimisticSOX ❌");
+    console.log("  EntryPoint in contract:", entryPointFromContract);
+    console.log("  Contract type:", isOptimisticSOXAccount ? "OptimisticSOXAccount ✅" : "OptimisticSOX ❌");
     console.log("");
 
-    // État initial
-    console.log("📊 État initial:");
+    console.log("📊 Initial state:");
     const initialState = await contract.currState();
-    console.log("  État:", initialState.toString(), "(0 = WaitPayment)");
+    console.log("  State:", initialState.toString(), "(0 = WaitPayment)");
     console.log("  AgreedPrice:", (await contract.agreedPrice()).toString(), "wei");
     console.log("  DisputeTip:", (await contract.disputeTip()).toString(), "wei");
     console.log("  CompletionTip:", (await contract.completionTip()).toString(), "wei");
     console.log("");
 
-    // Étape 1: Buyer envoie le paiement
-    console.log("📝 Étape 1: Buyer envoie le paiement...");
+    console.log("📝 Step 1: Buyer sends payment...");
     const paymentAmount = agreedPrice + completionTip;
-    console.log("  Montant:", paymentAmount.toString(), "wei (agreedPrice + completionTip)");
+    console.log("  Amount:", paymentAmount.toString(), "wei (agreedPrice + completionTip)");
     
     try {
         const tx1 = await contract.connect(buyer).sendPayment({ value: paymentAmount });
-        console.log("  ✅ Transaction envoyée:", tx1.hash);
+        console.log("  ✅ Transaction sent:", tx1.hash);
         await tx1.wait();
         const stateAfterPayment = await contract.currState();
-        console.log("  État après paiement:", stateAfterPayment.toString(), "(1 = WaitKey)");
+        console.log("  State after payment:", stateAfterPayment.toString(), "(1 = WaitKey)");
     } catch (e: any) {
-        console.error("  ❌ Erreur:", e.message);
+        console.error("  ❌ Error:", e.message);
         throw e;
     }
     console.log("");
 
-    // Étape 2: Vendor envoie la clé
-    console.log("📝 Étape 2: Vendor envoie la clé...");
+    console.log("📝 Step 2: Vendor sends key...");
     const keyData = ethers.toUtf8Bytes("test-secret-key-12345");
     try {
         const tx2 = await contract.connect(vendor).sendKey(keyData);
-        console.log("  ✅ Transaction envoyée:", tx2.hash);
+        console.log("  ✅ Transaction sent:", tx2.hash);
         await tx2.wait();
         const stateAfterKey = await contract.currState();
-        console.log("  État après clé:", stateAfterKey.toString(), "(2 = WaitSB)");
+        console.log("  State after key:", stateAfterKey.toString(), "(2 = WaitSB)");
     } catch (e: any) {
-        console.error("  ❌ Erreur:", e.message);
+        console.error("  ❌ Error:", e.message);
         throw e;
     }
     console.log("");
 
-    // Étape 3: Buyer dispute sponsor envoie ses frais
-    console.log("📝 Étape 3: Buyer dispute sponsor envoie ses frais...");
-    const DISPUTE_FEES = 10n; // From OptimisticSOX.sol
+    console.log("📝 Step 3: Buyer dispute sponsor sends fees...");
+    const DISPUTE_FEES = 10n;
     const sbRequiredAmount = DISPUTE_FEES + disputeTip;
-    console.log("  Montant requis:", sbRequiredAmount.toString(), "wei (DISPUTE_FEES + disputeTip)");
+    console.log("  Required amount:", sbRequiredAmount.toString(), "wei (DISPUTE_FEES + disputeTip)");
     
     try {
         const tx3 = await contract.connect(sbSponsor).sendBuyerDisputeSponsorFee({ value: sbRequiredAmount });
-        console.log("  ✅ Transaction envoyée:", tx3.hash);
+        console.log("  ✅ Transaction sent:", tx3.hash);
         await tx3.wait();
         const stateAfterSb = await contract.currState();
-        console.log("  État après frais buyer sponsor:", stateAfterSb.toString(), "(3 = WaitSV)");
+        console.log("  State after buyer sponsor fees:", stateAfterSb.toString(), "(3 = WaitSV)");
     } catch (e: any) {
-        console.error("  ❌ Erreur:", e.message);
+        console.error("  ❌ Error:", e.message);
         throw e;
     }
     console.log("");
 
-    // Étape 4: Vendor dispute sponsor envoie ses frais (NOUVELLE VERSION)
-    console.log("📝 Étape 4: Vendor dispute sponsor envoie ses frais (NOUVELLE VERSION)...");
+    console.log("📝 Step 4: Vendor dispute sponsor sends fees (NEW VERSION)...");
     const svRequiredAmount = DISPUTE_FEES + disputeTip + agreedPrice;
-    console.log("  Montant requis:", svRequiredAmount.toString(), "wei");
+    console.log("  Required amount:", svRequiredAmount.toString(), "wei");
     console.log("  (DISPUTE_FEES:", DISPUTE_FEES, "+ disputeTip:", disputeTip.toString(), "+ agreedPrice:", agreedPrice.toString(), ")");
 
-    // Vérifications avant l'envoi
     const contractBalance = await provider.getBalance(contractAddress);
     const svSponsorBalance = await provider.getBalance(await svSponsor.getAddress());
     const totalBalanceAfter = contractBalance + svRequiredAmount;
     console.log("");
-    console.log("  📊 Vérifications:");
-    console.log("    Balance actuelle du contrat:", contractBalance.toString(), "wei");
-    console.log("    Balance du sponsor vendor:", svSponsorBalance.toString(), "wei");
-    console.log("    Balance totale après envoi:", totalBalanceAfter.toString(), "wei");
-    console.log("    AgreedPrice requis:", agreedPrice.toString(), "wei");
-    console.log("    ✅ Balance totale >= AgreedPrice:", totalBalanceAfter >= agreedPrice ? "OUI" : "NON");
+    console.log("  📊 Verifications:");
+    console.log("    Current contract balance:", contractBalance.toString(), "wei");
+    console.log("    Vendor sponsor balance:", svSponsorBalance.toString(), "wei");
+    console.log("    Total balance after send:", totalBalanceAfter.toString(), "wei");
+    console.log("    Required AgreedPrice:", agreedPrice.toString(), "wei");
+    console.log("    ✅ Total balance >= AgreedPrice:", totalBalanceAfter >= agreedPrice ? "YES" : "NO");
 
-    // Simulation
     console.log("");
     console.log("  🧪 Simulation...");
     try {
         await contract.connect(svSponsor).sendVendorDisputeSponsorFee.staticCall({ value: svRequiredAmount });
-        console.log("  ✅ Simulation réussie");
+        console.log("  ✅ Simulation successful");
     } catch (e: any) {
         const errorMsg = e?.reason || e?.message || e?.toString() || "Unknown error";
-        console.error("  ❌ Simulation échouée:", errorMsg);
+        console.error("  ❌ Simulation failed:", errorMsg);
         throw e;
     }
 
-    // Envoi réel
     console.log("");
-    console.log("  🚀 Envoi réel...");
+    console.log("  🚀 Real send...");
     try {
         const tx4 = await contract.connect(svSponsor).sendVendorDisputeSponsorFee({ value: svRequiredAmount });
-        console.log("  ✅ Transaction envoyée:", tx4.hash);
+        console.log("  ✅ Transaction sent:", tx4.hash);
         await tx4.wait();
         const stateAfterSv = await contract.currState();
-        console.log("  État après frais vendor sponsor:", stateAfterSv.toString(), "(4 = InDispute)");
+        console.log("  State after vendor sponsor fees:", stateAfterSv.toString(), "(4 = InDispute)");
         
         const disputeContractAddress = await contract.disputeContract();
-        console.log("  Contrat de dispute déployé:", disputeContractAddress);
+        console.log("  Dispute contract deployed:", disputeContractAddress);
         
-        // Vérifier que c'est bien un DisputeSOXAccount
         if (disputeContractAddress !== ethers.ZeroAddress) {
             try {
                 const DisputeSOXAccountArtifact = await hre.artifacts.readArtifact("DisputeSOXAccount");
@@ -253,27 +239,27 @@ async function main() {
                     provider
                 );
                 const disputeEntryPoint = await disputeContract.entryPoint();
-                console.log("  EntryPoint du contrat de dispute:", disputeEntryPoint);
-                console.log("  Type de contrat de dispute:", disputeEntryPoint !== ethers.ZeroAddress ? "DisputeSOXAccount ✅" : "DisputeSOX ❌");
+                console.log("  Dispute contract EntryPoint:", disputeEntryPoint);
+                console.log("  Dispute contract type:", disputeEntryPoint !== ethers.ZeroAddress ? "DisputeSOXAccount ✅" : "DisputeSOX ❌");
             } catch (e) {
-                console.log("  ⚠️  Impossible de vérifier le type du contrat de dispute");
+                console.log("  ⚠️  Unable to verify dispute contract type");
             }
         }
     } catch (e: any) {
         const errorMsg = e?.reason || e?.message || e?.toString() || "Unknown error";
-        console.error("  ❌ Erreur:", errorMsg);
+        console.error("  ❌ Error:", errorMsg);
         throw e;
     }
 
     console.log("");
     console.log("=".repeat(80));
-    console.log("✅ Test terminé avec succès!");
+    console.log("✅ Test completed successfully!");
     console.log("=".repeat(80));
     console.log("");
-    console.log("📋 Résumé:");
-    console.log("  Contrat OptimisticSOXAccount:", contractAddress);
+    console.log("📋 Summary:");
+    console.log("  OptimisticSOXAccount contract:", contractAddress);
     console.log("  EntryPoint:", entryPointAddress);
-    console.log("  Contrat de dispute:", await contract.disputeContract());
+    console.log("  Dispute contract:", await contract.disputeContract());
     console.log("");
 }
 

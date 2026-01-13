@@ -36,7 +36,7 @@ async function main() {
     
     const contract = new ethers.Contract(contractAddress, accountAbi, sponsor);
     
-    // Vérifier l'état actuel
+    // verify l'état actuel
     const vendorSigner = await contract.vendorSigner();
     const vendor = await contract.vendor();
     const isSessionKey = await contract.sessionKeys(vendorAddress);
@@ -49,7 +49,7 @@ async function main() {
     console.log("");
     
     if (vendorAddress.toLowerCase() === vendorSigner.toLowerCase()) {
-        console.log("✅ Le vendorSigner correspond déjà au vendor!");
+        console.log("✅ Le vendorSigner matches déjà au vendor!");
         return;
     }
     
@@ -62,17 +62,17 @@ async function main() {
     console.log("🔧 Ajout du vendor comme session key...");
     try {
         const tx = await contract.connect(sponsor).addSessionKey(vendorAddress);
-        console.log("   Transaction envoyée:", tx.hash);
+        console.log("   Transaction sente:", tx.hash);
         await tx.wait();
-        console.log("✅ Session key ajoutée avec succès!");
+        console.log("✅ Session key addede avec success!");
         
-        // Vérifier
+        // verify
         const newIsSessionKey = await contract.sessionKeys(vendorAddress);
         if (newIsSessionKey) {
-            console.log("✅ Vérification: Le vendor est maintenant une session key autorisée!");
+            console.log("✅ VERIFICATION: Le vendor est maintenant une session key autorisée!");
         }
     } catch (error: any) {
-        console.error("❌ Erreur:", error.message);
+        console.error("❌ error:", error.message);
         throw error;
     }
 }

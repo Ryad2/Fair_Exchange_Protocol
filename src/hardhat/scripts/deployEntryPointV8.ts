@@ -77,10 +77,10 @@ async function main() {
     const provider = ethers.provider;
 
     console.log("=".repeat(80));
-    console.log("🚀 Déploiement de l'EntryPoint v0.8 (canonique)");
+    console.log("🚀 Deploying EntryPoint v0.8 (canonical)");
     console.log("=".repeat(80));
     console.log("Deployer:", await deployer.getAddress());
-    console.log("EntryPoint canonique:", CANONICAL_ENTRYPOINT_V8);
+    console.log("Canonical EntryPoint:", CANONICAL_ENTRYPOINT_V8);
 
     const entryPointJsonPath = path.join(
         __dirname,
@@ -107,7 +107,7 @@ async function main() {
     await setCode(provider, CANONICAL_ENTRYPOINT_V8, runtimeCode);
     await setCode(provider, tempAddress, "0x");
 
-    console.log("✅ EntryPoint v0.8 set at canonique:", CANONICAL_ENTRYPOINT_V8);
+    console.log("✅ EntryPoint v0.8 set at canonical:", CANONICAL_ENTRYPOINT_V8);
 
     const senderCreatorJsonPath = path.join(
         __dirname,
@@ -124,7 +124,7 @@ async function main() {
     const senderCreator = await senderCreatorFactory.deploy();
     await senderCreator.waitForDeployment();
     const senderCreatorAddress = await senderCreator.getAddress();
-    console.log("✅ SenderCreator déployé à:", senderCreatorAddress);
+    console.log("✅ SenderCreator deployed at:", senderCreatorAddress);
 
     const senderCreatorSlot = ethers.keccak256(
         ethers.toUtf8Bytes("SENDER_CREATOR")
@@ -136,7 +136,7 @@ async function main() {
         senderCreatorSlot,
         senderCreatorValue
     );
-    console.log("✅ SenderCreator slot configuré");
+    console.log("✅ SenderCreator slot configured");
 
     const entryPoint = new ethers.Contract(
         CANONICAL_ENTRYPOINT_V8,
@@ -144,7 +144,7 @@ async function main() {
         deployer
     );
     await (entryPoint.initDomainSeparator() as Promise<any>);
-    console.log("✅ Domain separator initialisé");
+    console.log("✅ Domain separator initialized");
 
     const bundlerConfigPath = path.join(
         __dirname,
@@ -160,17 +160,17 @@ async function main() {
         JSON.stringify(bundlerConfig, null, 4) + "\n",
         "utf-8"
     );
-    console.log("✅ Config bundler mise à jour:", bundlerConfigPath);
+    console.log("✅ Bundler config updated:", bundlerConfigPath);
     console.log("   EntryPoints:", bundlerConfig.entrypoints);
 
     const envPath = path.join(__dirname, "../../../.env.local");
     updateEnv(envPath, CANONICAL_ENTRYPOINT_V8);
-    console.log("✅ .env.local mise à jour:", envPath);
+    console.log("✅ .env.local updated:", envPath);
     console.log("   NEXT_PUBLIC_ENTRY_POINT:", CANONICAL_ENTRYPOINT_V8);
     console.log("   NEXT_PUBLIC_ENTRY_POINT_V8:", CANONICAL_ENTRYPOINT_V8);
 
     console.log("=".repeat(80));
-    console.log("✅ Déploiement EntryPoint v0.8 terminé");
+    console.log("✅ EntryPoint v0.8 deployment completed");
     console.log("=".repeat(80));
 }
 
