@@ -38,29 +38,47 @@ fi
 echo -e "${GREEN}✅ Hardhat node est actif${NC}"
 echo ""
 
-# Étape 2: Déployer les contrats
-echo "📝 Étape 2: Déploiement des contrats..."
+# Étape 2: Vérifier/Créer la structure du bundler
+echo "📝 Étape 2: Préparation de l'environnement..."
+if [ ! -d "bundler-alto/scripts" ]; then
+    echo "  - Création de la structure du bundler..."
+    mkdir -p bundler-alto/scripts
+    # Créer un fichier config.local.json minimal si nécessaire
+    if [ ! -f "bundler-alto/scripts/config.local.json" ]; then
+        echo '{}' > bundler-alto/scripts/config.local.json
+    fi
+fi
+
+# Étape 3: Déployer les contrats
+echo "📝 Étape 3: Déploiement des contrats..."
 cd src/hardhat
 
-# Déployer EntryPoint si nécessaire
-echo "  - Déploiement de l'EntryPoint..."
-npx hardhat run scripts/deployEntryPointForBundler.ts --network localhost > /dev/null 2>&1 || true
+# Déployer EntryPoint v0.8 (canonique)
+echo "  - Déploiement de l'EntryPoint v0.8..."
+if ! npx hardhat run scripts/deployEntryPointV8.ts --network localhost; then
+    echo -e "${RED}❌ Échec du déploiement de l'EntryPoint v0.8${NC}"
+    echo -e "${YELLOW}   Vérifiez que Hardhat node est bien lancé${NC}"
+    exit 1
+fi
 
 # Déployer les contrats de simulation
 echo "  - Déploiement des contrats de simulation..."
-npx hardhat run scripts/deployPimlicoSimulations.ts --network localhost > /dev/null 2>&1 || true
-npx hardhat run scripts/deployEntryPointSimulations.ts --network localhost > /dev/null 2>&1 || true
+npx hardhat run scripts/deployPimlicoSimulations.ts --network localhost || echo -e "${YELLOW}   ⚠️  Simulation Pimlico ignorée${NC}"
+npx hardhat run scripts/deployEntryPointSimulationsV8.ts --network localhost || echo -e "${YELLOW}   ⚠️  Simulation EntryPoint v0.8 ignorée${NC}"
 
-# Déployer tous les autres contrats
+# Déployer tous les autres contrats (deployCompleteStack génère deployed-contracts.json)
 echo "  - Déploiement de tous les contrats..."
-npx hardhat run scripts/deployAll.ts --network localhost
+if ! npx hardhat run scripts/deployCompleteStack.ts --network localhost; then
+    echo -e "${RED}❌ Échec du déploiement des contrats${NC}"
+    exit 1
+fi
 
 cd ../..
 echo -e "${GREEN}✅ Contrats déployés${NC}"
 echo ""
 
-# Étape 3: Vérifier que le bundler peut démarrer
-echo "🔌 Étape 3: Vérification du bundler..."
+# Étape 4: Vérifier que le bundler peut démarrer
+echo "🔌 Étape 4: Vérification du bundler..."
 if check_port 3002; then
     echo -e "${YELLOW}⚠️  Le port 3002 est déjà utilisé (bundler peut-être déjà lancé)${NC}"
 else
@@ -68,8 +86,8 @@ else
 fi
 echo ""
 
-# Étape 4: Vérifier que Next.js peut démarrer
-echo "🌐 Étape 4: Vérification de Next.js..."
+# Étape 5: Vérifier que Next.js peut démarrer
+echo "🌐 Étape 5: Vérification de Next.js..."
 if check_port 3000; then
     echo -e "${YELLOW}⚠️  Le port 3000 est déjà utilisé (Next.js peut-être déjà lancé)${NC}"
 else

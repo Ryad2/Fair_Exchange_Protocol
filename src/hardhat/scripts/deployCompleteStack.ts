@@ -414,6 +414,7 @@ DISPUTE_DEPLOYER=${addresses.disputeDeployer}
     console.log("-".repeat(80));
 
     const deployedContractsPath = join(__dirname, "../../../deployed-contracts.json");
+    const deployedContractsSrcPath = join(__dirname, "../../deployed-contracts.json");
     const network = await hre.ethers.provider.getNetwork();
     const deployedContractsData = {
         network: hre.network.name,
@@ -432,11 +433,15 @@ DISPUTE_DEPLOYER=${addresses.disputeDeployer}
         timestamp: new Date().toISOString(),
     };
 
-    writeFileSync(
-        deployedContractsPath,
-        JSON.stringify(deployedContractsData, null, 2)
-    );
+    const jsonContent = JSON.stringify(deployedContractsData, null, 2);
+    
+    // Écrire à la racine (pour compatibilité)
+    writeFileSync(deployedContractsPath, jsonContent);
     console.log("  ✅ deployed-contracts.json mis à jour:", deployedContractsPath);
+    
+    // Écrire aussi dans src/ (pour que Next.js/Turbopack puisse le trouver)
+    writeFileSync(deployedContractsSrcPath, jsonContent);
+    console.log("  ✅ src/deployed-contracts.json mis à jour:", deployedContractsSrcPath);
     console.log("     DisputeDeployer:", addresses.disputeDeployer);
     console.log("");
 
