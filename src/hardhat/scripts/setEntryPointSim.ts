@@ -13,8 +13,8 @@ async function main() {
     }
     
     if (!entryPointSim) {
-        console.error("❌ NEXT_PUBLIC_ENTRY_POINT_SIM n'est pas défini dans l'environnement!");
-        console.error("   Définissez-le dans .env.local ou exportez-le avant d'exécuter le script.");
+        console.error("❌ NEXT_PUBLIC_ENTRY_POINT_SIM is not defined in environment!");
+        console.error("   Define it in .env.local or export it before running the script.");
         process.exit(1);
     }
     
@@ -23,7 +23,7 @@ async function main() {
     const sponsorAddress = await sponsorWallet.getAddress();
     
     console.log("=".repeat(80));
-    console.log("🔧 Configuration d'EntryPointSim");
+    console.log("🔧 Configuring EntryPointSim");
     console.log("=".repeat(80));
     console.log("");
     console.log("Contract address:", contractAddr);
@@ -40,55 +40,51 @@ async function main() {
     const contract = new ethers.Contract(contractAddr, accountAbi, sponsorWallet);
     
     try {
-        // Vérifier que le wallet correspond au sponsor
         const contractSponsor = await contract.sponsor();
         if (contractSponsor.toLowerCase() !== sponsorAddress.toLowerCase()) {
-            console.error("❌ Le wallet ne correspond pas au sponsor du contrat!");
-            console.error("   Contrat sponsor:", contractSponsor);
+            console.error("❌ Wallet does not match contract sponsor!");
+            console.error("   Contract sponsor:", contractSponsor);
             console.error("   Wallet address:", sponsorAddress);
             process.exit(1);
         }
-        console.log("✅ Le wallet correspond au sponsor");
+        console.log("✅ Wallet matches sponsor");
         
-        // Vérifier l'état actuel
         let currentEntryPointSim: string;
         try {
             currentEntryPointSim = await contract.entryPointSim();
         } catch (e) {
-            console.error("❌ Le contrat n'a pas la fonction entryPointSim()");
-            console.error("   Le contrat est probablement une ancienne version qui ne supporte pas EntryPointSim.");
+            console.error("❌ Contract does not have entryPointSim() function");
+            console.error("   Contract is probably an old version that does not support EntryPointSim.");
             process.exit(1);
         }
         
-        console.log("   EntryPointSim actuel:", currentEntryPointSim === "0x0000000000000000000000000000000000000000" ? "Non configuré" : currentEntryPointSim);
+        console.log("   Current EntryPointSim:", currentEntryPointSim === "0x0000000000000000000000000000000000000000" ? "Not configured" : currentEntryPointSim);
         
         if (currentEntryPointSim.toLowerCase() === entryPointSim.toLowerCase()) {
-            console.log("✅ EntryPointSim est déjà configuré avec cette valeur!");
+            console.log("✅ EntryPointSim is already configured with this value!");
             return;
         }
         
-        // Configurer EntryPointSim
         console.log("");
-        console.log("🔄 Configuration d'EntryPointSim...");
+        console.log("🔄 Configuring EntryPointSim...");
         const tx = await contract.setEntryPointSim(entryPointSim);
-        console.log("   Transaction envoyée, hash:", tx.hash);
-        console.log("   Attente de la confirmation...");
+        console.log("   Transaction sent, hash:", tx.hash);
+        console.log("   Waiting for confirmation...");
         await tx.wait();
-        console.log("✅ EntryPointSim configuré avec succès!");
+        console.log("✅ EntryPointSim configured successfully!");
         
-        // Vérifier
         const updatedEntryPointSim = await contract.entryPointSim();
         if (updatedEntryPointSim.toLowerCase() === entryPointSim.toLowerCase()) {
-            console.log("✅ Vérification: EntryPointSim =", updatedEntryPointSim);
+            console.log("✅ Verification: EntryPointSim =", updatedEntryPointSim);
         } else {
-            console.error("❌ Erreur: EntryPointSim n'a pas été mis à jour correctement!");
-            console.error("   Attendu:", entryPointSim);
-            console.error("   Reçu:", updatedEntryPointSim);
+            console.error("❌ Error: EntryPointSim was not updated correctly!");
+            console.error("   Expected:", entryPointSim);
+            console.error("   Received:", updatedEntryPointSim);
         }
     } catch (error: any) {
-        console.error("❌ Erreur:", error.message);
+        console.error("❌ Error:", error.message);
         if (error.message?.includes("Only sponsor")) {
-            console.error("   Le wallet doit être le sponsor du contrat.");
+            console.error("   Wallet must be the contract sponsor.");
         }
         process.exit(1);
     }

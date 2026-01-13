@@ -26,9 +26,9 @@ async function main() {
     try {
         const configContent = fs.readFileSync(bundlerConfigPath, "utf-8");
         bundlerConfig = JSON.parse(configContent);
-    } catch (error) {
-        console.warn("⚠️  Impossible de lire la configuration du bundler:", error.message);
-        console.warn("   Le fichier sera créé.");
+    } catch (error: any) {
+        console.warn("⚠️  Unable to read bundler configuration:", error.message);
+        console.warn("   File will be created.");
     }
 
     bundlerConfig.entrypoints = entryPointAddress;
@@ -39,10 +39,10 @@ async function main() {
             JSON.stringify(bundlerConfig, null, 4) + "\n",
             "utf-8"
         );
-        console.log("✅ Config bundler mise à jour:", bundlerConfigPath);
+        console.log("✅ Bundler config updated:", bundlerConfigPath);
         console.log(`   "entrypoints": "${entryPointAddress}"`);
-    } catch (error) {
-        console.error("❌ Erreur lors de l'écriture de config.local.json:", error.message);
+    } catch (error: any) {
+        console.error("❌ Error writing config.local.json:", error.message);
     }
 
     const envPath = path.join(__dirname, "../../../.env.local");
@@ -61,9 +61,9 @@ async function main() {
         }
 
         fs.writeFileSync(envPath, envContent, "utf-8");
-        console.log("✅ .env.local mise à jour:", envPath);
-    } catch (error) {
-        console.error("❌ Erreur lors de la mise à jour de .env.local:", error.message);
+        console.log("✅ .env.local updated:", envPath);
+    } catch (error: any) {
+        console.error("❌ Error updating .env.local:", error.message);
     }
 }
 

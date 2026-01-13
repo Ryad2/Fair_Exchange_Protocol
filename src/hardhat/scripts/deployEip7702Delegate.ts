@@ -73,7 +73,7 @@ async function main() {
 
     const envPath = path.join(__dirname, "../../../.env.local");
     updateEnv(envPath, address);
-    console.log("✅ .env.local mise à jour:", envPath);
+    console.log("✅ .env.local updated:", envPath);
     console.log("   NEXT_PUBLIC_EIP7702_DELEGATE:", address);
 }
 

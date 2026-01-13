@@ -2,20 +2,11 @@ import hre from "hardhat";
 import { ethers } from "hardhat";
 import EntryPointArtifact from "@account-abstraction/contracts/artifacts/EntryPoint.json";
 
-/**
- * Script pour redéployer OptimisticSOXAccount avec la nouvelle version corrigée
- * qui exige DISPUTE_FEES + disputeTip + agreedPrice pour sendVendorDisputeSponsorFee
- * 
- * IMPORTANT: On déploie OptimisticSOXAccount (pas OptimisticSOX) car :
- * - Le bundler communique avec OptimisticSOXAccount via l'EntryPoint
- * - OptimisticSOXAccount supporte ERC-4337 (UserOperations)
- * - OptimisticSOX (base) n'a pas de support ERC-4337
- */
 async function main() {
     const [sponsor, buyer, vendor] = await hre.ethers.getSigners();
 
     console.log("=".repeat(80));
-    console.log("🚀 Redéploiement de OptimisticSOXAccount avec la nouvelle version corrigée");
+    console.log("🚀 Redeploying OptimisticSOXAccount with new corrected version");
     console.log("=".repeat(80));
     console.log("");
     console.log("Signers:");
@@ -26,8 +17,7 @@ async function main() {
 
     const GWEI_MULT = 1_000_000_000n;
 
-    // --- Déploiement des Libraries ---
-    console.log("📚 Déploiement des libraries...");
+    console.log("📚 Deploying libraries...");
     
     const AccumulatorVerifierFactory = await ethers.getContractFactory("AccumulatorVerifier");
     const accumulatorVerifier = await AccumulatorVerifierFactory.deploy();
@@ -82,18 +72,15 @@ async function main() {
     console.log("  ✅ DisputeDeployer:", await disputeDeployer.getAddress());
     console.log("");
 
-    // --- Déploiement de l'EntryPoint (nécessaire pour OptimisticSOXAccount) ---
-    console.log("📦 Déploiement de l'EntryPoint...");
+    console.log("📦 Deploying EntryPoint...");
     let entryPoint;
-    const entryPointAddress = "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789"; // Adresse standard ERC-4337
+    const entryPointAddress = "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789";
     
-    // Vérifier si l'EntryPoint existe déjà
     const existingCode = await hre.ethers.provider.getCode(entryPointAddress);
     if (existingCode !== "0x") {
-        console.log("  ✅ EntryPoint existe déjà à:", entryPointAddress);
+        console.log("  ✅ EntryPoint already exists at:", entryPointAddress);
         entryPoint = new hre.ethers.Contract(entryPointAddress, EntryPointArtifact.abi, hre.ethers.provider);
     } else {
-        // Déployer l'EntryPoint si nécessaire
         const EntryPointFactory = new hre.ethers.ContractFactory(
             EntryPointArtifact.abi,
             EntryPointArtifact.bytecode,
@@ -102,28 +89,27 @@ async function main() {
         entryPoint = await EntryPointFactory.deploy();
         await entryPoint.waitForDeployment();
         const deployedAddress = await entryPoint.getAddress();
-        console.log("  ✅ EntryPoint déployé à:", deployedAddress);
+        console.log("  ✅ EntryPoint deployed at:", deployedAddress);
     }
     console.log("");
 
-    // --- Déploiement de OptimisticSOXAccount ---
-    console.log("📦 Déploiement de OptimisticSOXAccount...");
-    console.log("  ⚠️  IMPORTANT: On déploie OptimisticSOXAccount (pas OptimisticSOX) car :");
-    console.log("     - Le bundler communique avec OptimisticSOXAccount via l'EntryPoint");
-    console.log("     - OptimisticSOXAccount supporte ERC-4337 (UserOperations)");
-    console.log("     - OptimisticSOX (base) n'a pas de support ERC-4337");
+    console.log("📦 Deploying OptimisticSOXAccount...");
+    console.log("  ⚠️  IMPORTANT: We deploy OptimisticSOXAccount (not OptimisticSOX) because:");
+    console.log("     - Bundler communicates with OptimisticSOXAccount via EntryPoint");
+    console.log("     - OptimisticSOXAccount supports ERC-4337 (UserOperations)");
+    console.log("     - OptimisticSOX (base) does not have ERC-4337 support");
     console.log("");
     
-    const sponsorAmount = ethers.parseEther("1"); // 1 ETH pour le sponsor
-    const agreedPrice = 1n; // 1 wei (pour le test)
-    const completionTip = 1n; // 1 wei
-    const disputeTip = 1n; // 1 wei
-    const timeoutIncrement = 3600n; // 1 hour
+    const sponsorAmount = ethers.parseEther("1");
+    const agreedPrice = 1n;
+    const completionTip = 1n;
+    const disputeTip = 1n;
+    const timeoutIncrement = 3600n;
     const numBlocks = 1024;
     const numGates = 4 * numBlocks + 1;
-    const commitment = ethers.ZeroHash; // Commitment vide pour le test
+    const commitment = ethers.ZeroHash;
 
-    console.log("  Paramètres:");
+    console.log("  Parameters:");
     console.log("    EntryPoint:", await entryPoint.getAddress());
     console.log("    Sponsor amount:", sponsorAmount.toString(), "wei");
     console.log("    Agreed price:", agreedPrice.toString(), "wei");
@@ -142,9 +128,9 @@ async function main() {
     });
 
     const contract = await OptimisticSOXAccountFactory.connect(sponsor).deploy(
-        await entryPoint.getAddress(),  // _entryPoint
-        await vendor.getAddress(),      // _vendor
-        await buyer.getAddress(),       // _buyer
+        await entryPoint.getAddress(),
+        await vendor.getAddress(),
+        await buyer.getAddress(),
         agreedPrice,
         completionTip,
         disputeTip,
@@ -152,7 +138,7 @@ async function main() {
         commitment,
         numBlocks,
         numGates,
-        await vendor.getAddress(),      // _vendorSigner (utilise vendor par défaut)
+        await vendor.getAddress(),
         {
             value: sponsorAmount,
         }
@@ -160,11 +146,10 @@ async function main() {
     await contract.waitForDeployment();
     const contractAddress = await contract.getAddress();
 
-    console.log("  ✅ OptimisticSOXAccount déployé à:", contractAddress);
+    console.log("  ✅ OptimisticSOXAccount deployed at:", contractAddress);
     console.log("");
 
-    // --- Vérification ---
-    console.log("🔍 Vérification du contrat déployé...");
+    console.log("🔍 Verifying deployed contract...");
     const deployedState = await contract.currState();
     const deployedBuyer = await contract.buyer();
     const deployedVendor = await contract.vendor();
@@ -174,7 +159,7 @@ async function main() {
     const deployedEntryPoint = await contract.entryPoint();
     const deployedVendorSigner = await contract.vendorSigner();
 
-    console.log("  État initial:", deployedState.toString(), "(WaitPayment = 0)");
+    console.log("  Initial state:", deployedState.toString(), "(WaitPayment = 0)");
     console.log("  Buyer:", deployedBuyer);
     console.log("  Vendor:", deployedVendor);
     console.log("  Sponsor:", deployedSponsor);
@@ -184,33 +169,32 @@ async function main() {
     console.log("  Dispute tip:", deployedDisputeTip.toString(), "wei");
     console.log("");
 
-    // --- Test de la nouvelle version ---
-    console.log("🧪 Test de la nouvelle version...");
-    console.log("  La nouvelle version exige DISPUTE_FEES + disputeTip + agreedPrice");
-    console.log("  Montant requis:", (10n + deployedDisputeTip + deployedAgreedPrice).toString(), "wei");
+    console.log("🧪 Testing new version...");
+    console.log("  New version requires DISPUTE_FEES + disputeTip + agreedPrice");
+    console.log("  Required amount:", (10n + deployedDisputeTip + deployedAgreedPrice).toString(), "wei");
     console.log("  (DISPUTE_FEES: 10 + disputeTip:", deployedDisputeTip.toString(), "+ agreedPrice:", deployedAgreedPrice.toString(), ")");
     console.log("");
 
     console.log("=".repeat(80));
-    console.log("✅ Redéploiement terminé avec succès!");
+    console.log("✅ Redeployment completed successfully!");
     console.log("=".repeat(80));
     console.log("");
-    console.log("📋 Informations importantes:");
-    console.log("  Adresse du contrat:", contractAddress);
+    console.log("📋 Important information:");
+    console.log("  Contract address:", contractAddress);
     console.log("  EntryPoint:", deployedEntryPoint);
     console.log("  DisputeDeployer:", await disputeDeployer.getAddress());
     console.log("");
-    console.log("🔗 Communication avec le bundler:");
-    console.log("  - Le bundler communique avec OptimisticSOXAccount via l'EntryPoint");
-    console.log("  - Les UserOperations sont envoyées au bundler qui les traite via l'EntryPoint");
-    console.log("  - Le vendor peut envoyer sendKey() via UserOperation (fees sponsorisées)");
+    console.log("🔗 Communication with bundler:");
+    console.log("  - Bundler communicates with OptimisticSOXAccount via EntryPoint");
+    console.log("  - UserOperations are sent to bundler which processes them via EntryPoint");
+    console.log("  - Vendor can send sendKey() via UserOperation (sponsored fees)");
     console.log("");
-    console.log("💡 Pour tester sendVendorDisputeSponsorFee:");
-    console.log("  1. Le buyer doit d'abord envoyer le paiement (sendPayment)");
-    console.log("  2. Le vendor peut envoyer la clé via UserOperation (sendKey via bundler)");
-    console.log("  3. Le buyer dispute sponsor doit envoyer ses frais (sendBuyerDisputeSponsorFee)");
-    console.log("  4. Le vendor dispute sponsor peut alors envoyer ses frais avec:");
-    console.log("     Montant requis:", (10n + deployedDisputeTip + deployedAgreedPrice).toString(), "wei");
+    console.log("💡 To test sendVendorDisputeSponsorFee:");
+    console.log("  1. Buyer must first send payment (sendPayment)");
+    console.log("  2. Vendor can send key via UserOperation (sendKey via bundler)");
+    console.log("  3. Buyer dispute sponsor must send fees (sendBuyerDisputeSponsorFee)");
+    console.log("  4. Vendor dispute sponsor can then send fees with:");
+    console.log("     Required amount:", (10n + deployedDisputeTip + deployedAgreedPrice).toString(), "wei");
     console.log("");
 }
 
