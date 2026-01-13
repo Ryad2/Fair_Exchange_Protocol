@@ -2,13 +2,13 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   /* config options here */
-  // Ignorer le répertoire app/ à la racine pour éviter les conflits
-  // Next.js utilisera automatiquement src/app/ comme répertoire source
+  // Ignore app/ directory at root to avoid conflicts
+  // Next.js will automatically use src/app/ as source directory
   pageExtensions: ['tsx', 'ts', 'jsx', 'js'],
   
-  // Permettre l'import de fichiers JSON depuis la racine et src/
+  // Allow importing JSON files from root and src/
   webpack: (config, { isServer }) => {
-    // Permettre l'import de JSON depuis la racine du projet
+    // Allow importing JSON from project root
     config.resolve.alias = {
       ...config.resolve.alias,
     };

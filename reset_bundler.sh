@@ -3,111 +3,110 @@
 set -e
 
 echo "=================================================================================="
-echo "🔄 RÉINITIALISATION COMPLÈTE DU BUNDLER ALTO"
+echo "🔄 COMPLETE ALTO BUNDLER RESET"
 echo "=================================================================================="
 echo ""
 
-# 1. Arrêter tous les processus
-echo "📋 ÉTAPE 1: Arrêt de tous les processus"
-echo "   Arrête manuellement:"
-echo "   - Bundler (Ctrl+C dans son terminal)"
-echo "   - Next.js (Ctrl+C dans son terminal)"
-echo "   - Hardhat node (Ctrl+C dans son terminal)"
+# 1. Stop all processes
+echo "📋 STEP 1: Stopping all processes"
+echo "   Stop manually:"
+echo "   - Bundler (Ctrl+C in its terminal)"
+echo "   - Next.js (Ctrl+C in its terminal)"
+echo "   - Hardhat node (Ctrl+C in its terminal)"
 echo ""
-read -p "Appuyez sur Entrée quand tout est arrêté..."
+read -p "Press Enter when everything is stopped..."
 
-# 2. Nettoyer le bundler
+# 2. Clean bundler
 echo ""
-echo "📋 ÉTAPE 2: Nettoyage du bundler"
+echo "📋 STEP 2: Cleaning bundler"
 cd bundler-alto
 
 if [ -d "node_modules" ]; then
-    echo "   Suppression de node_modules..."
+    echo "   Removing node_modules..."
     rm -rf node_modules
 fi
 
 if [ -d ".pnpm-store" ]; then
-    echo "   Suppression de .pnpm-store..."
+    echo "   Removing .pnpm-store..."
     rm -rf .pnpm-store
 fi
 
 if [ -f "pnpm-lock.yaml" ]; then
-    echo "   Suppression de pnpm-lock.yaml..."
+    echo "   Removing pnpm-lock.yaml..."
     rm -f pnpm-lock.yaml
 fi
 
-# Nettoyer les builds
+# Clean builds
 if [ -d "src/esm" ]; then
-    echo "   Suppression des builds..."
+    echo "   Removing builds..."
     rm -rf src/esm
 fi
 
 if [ -d "dist" ]; then
-    echo "   Suppression de dist..."
+    echo "   Removing dist..."
     rm -rf dist
 fi
 
-echo "   ✅ Nettoyage terminé"
+echo "   ✅ Cleanup completed"
 cd ..
 
-# 3. Réinstaller le bundler
+# 3. Reinstall bundler
 echo ""
-echo "📋 ÉTAPE 3: Réinstallation du bundler"
+echo "📋 STEP 3: Reinstalling bundler"
 cd bundler-alto
 
-echo "   Installation des dépendances avec pnpm..."
+echo "   Installing dependencies with pnpm..."
 pnpm install
 
-echo "   Build du bundler..."
+echo "   Building bundler..."
 pnpm run build:all
 
-echo "   ✅ Réinstallation terminée"
+echo "   ✅ Reinstallation completed"
 cd ..
 
-# 4. Vérifier la configuration
+# 4. Check configuration
 echo ""
-echo "📋 ÉTAPE 4: Vérification de la configuration"
+echo "📋 STEP 4: Checking configuration"
 CONFIG_FILE="bundler-alto/scripts/config.local.json"
 
 if [ ! -f "$CONFIG_FILE" ]; then
-    echo "   ❌ Fichier de configuration non trouvé: $CONFIG_FILE"
-    echo "   💡 Crée-le manuellement ou utilise le script de déploiement"
+    echo "   ❌ Configuration file not found: $CONFIG_FILE"
+    echo "   💡 Create it manually or use deployment script"
 else
-    echo "   ✅ Fichier de configuration trouvé"
-    echo "   Vérifie que 'rpc-url' est 'http://127.0.0.1:8545'"
-    grep -q "127.0.0.1:8545" "$CONFIG_FILE" && echo "   ✅ RPC URL correcte" || echo "   ⚠️  RPC URL à vérifier"
+    echo "   ✅ Configuration file found"
+    echo "   Verify that 'rpc-url' is 'http://127.0.0.1:8545'"
+    grep -q "127.0.0.1:8545" "$CONFIG_FILE" && echo "   ✅ RPC URL correct" || echo "   ⚠️  RPC URL needs verification"
 fi
 
-# 5. Instructions finales
+# 5. Final instructions
 echo ""
 echo "=================================================================================="
-echo "✅ RÉINITIALISATION TERMINÉE"
+echo "✅ RESET COMPLETED"
 echo "=================================================================================="
 echo ""
-echo "📋 PROCHAINES ÉTAPES:"
+echo "📋 NEXT STEPS:"
 echo ""
-echo "1. Lance Hardhat node:"
+echo "1. Start Hardhat node:"
 echo "   cd src/hardhat"
 echo "   npx hardhat node"
 echo ""
-echo "2. Dans un autre terminal, déploie l'EntryPoint (si nécessaire):"
+echo "2. In another terminal, deploy EntryPoint (if needed):"
 echo "   cd src/hardhat"
 echo "   npm run deploy:entrypoint:bundler"
 echo ""
-echo "3. Dans un autre terminal, lance le bundler:"
+echo "3. In another terminal, start bundler:"
 echo "   cd bundler-alto"
 echo "   ./run-local.sh"
 echo ""
-echo "4. Dans un autre terminal, lance Next.js:"
+echo "4. In another terminal, start Next.js:"
 echo "   cd src"
 echo "   npm run dev"
 echo ""
-echo "5. Déploie un NOUVEAU contrat via l'interface web"
+echo "5. Deploy a NEW contract via web interface"
 echo ""
-echo "6. Essaie d'envoyer la UserOperation"
+echo "6. Try sending the UserOperation"
 echo ""
-echo "💡 Si le problème persiste, lance le diagnostic:"
+echo "💡 If problem persists, run diagnostics:"
 echo "   cd src/hardhat"
 echo "   CONTRACT_ADDRESS=0x... npx hardhat run scripts/debugBundlerIssue.ts --network localhost"
 echo ""
-
