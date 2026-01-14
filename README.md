@@ -140,13 +140,7 @@ sox_implementation/
 - [ERC-4337 Documentation](https://eips.ethereum.org/EIPS/eip-4337)
 - [Pimlico Alto Bundler](https://docs.pimlico.io/infra/bundler)
 
-## 📄 License
 
-[To be completed according to project license]
-
-## 👥 Contributors
-
-[To be completed]
 
 ---
 
