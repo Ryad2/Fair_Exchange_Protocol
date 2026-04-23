@@ -894,17 +894,10 @@ describe("Phase 3 exhaustive matrix and gas measurements", () => {
         expect(hardcoded.submitCommitment).to.be.lessThan(normal.submitCommitment);
     });
 
-    it("measures 900 MiB equivalent hCircuit proof before/after hardcoded SHA256", async () => {
-        const plaintextLength = 900n * 1024n * 1024n;
-        const numBlocks = hardcodedBlockCount(plaintextLength);
-        const numGates = hardcodedSha256GateCount(plaintextLength);
-        const proofDepth = ceilLog2(numGates);
-        const proof = makeAccumulatorProof(proofDepth, Number(numGates - 1n));
-
+    it("measures large-file equivalent hCircuit proof before/after hardcoded SHA256", async () => {
         const accumulatorFactory = await ethers.getContractFactory("AccumulatorVerifier");
         const accumulator = await accumulatorFactory.deploy();
         await accumulator.waitForDeployment();
-
         const verifierFactory = await ethers.getContractFactory("TestAccumulatorVerifier", {
             libraries: {
                 AccumulatorVerifier: await accumulator.getAddress(),
@@ -913,55 +906,67 @@ describe("Phase 3 exhaustive matrix and gas measurements", () => {
         const verifier = await verifierFactory.deploy();
         await verifier.waitForDeployment();
 
-        expect(await verifier.verify(proof.root, [proof.index], [proof.leaf], proof.proof)).to.equal(
-            true
-        );
+        const rows: LargeCircuitGasBreakdown[] = [];
+        for (const item of [
+            { label: "900 MiB", plaintextLength: 900n * 1024n * 1024n },
+            { label: "1 GiB", plaintextLength: 1024n * 1024n * 1024n },
+        ]) {
+            const numBlocks = hardcodedBlockCount(item.plaintextLength);
+            const numGates = hardcodedSha256GateCount(item.plaintextLength);
+            const proofDepth = ceilLog2(numGates);
+            const proof = makeAccumulatorProof(proofDepth, Number(numGates - 1n));
 
-        const normalHCircuitProofGas = await verifier.verify.estimateGas(
-            proof.root,
-            [proof.index],
-            [proof.leaf],
-            proof.proof
-        );
+            expect(
+                await verifier.verify(proof.root, [proof.index], [proof.leaf], proof.proof)
+            ).to.equal(true);
 
-        const synthetic = await deploySyntheticHardcodedDispute(plaintextLength);
-        expect(synthetic.numBlocks).to.equal(numBlocks);
-        expect(synthetic.numGates).to.equal(numGates);
+            const normalHCircuitProofGas = await verifier.verify.estimateGas(
+                proof.root,
+                [proof.index],
+                [proof.leaf],
+                proof.proof
+            );
 
-        const shaStart = numBlocks + 3n;
-        const hardcodedAesGateGas =
-            await synthetic.dispute.expectedHardcodedGateHash.estimateGas(Number(numBlocks));
-        const hardcodedShaGateGas =
-            await synthetic.dispute.expectedHardcodedGateHash.estimateGas(Number(shaStart));
-        const hardcodedFinalGateGas =
-            await synthetic.dispute.expectedHardcodedGateHash.estimateGas(Number(numGates));
-        const hardcodedGateGases = [
-            hardcodedAesGateGas,
-            hardcodedShaGateGas,
-            hardcodedFinalGateGas,
-        ];
+            const synthetic = await deploySyntheticHardcodedDispute(item.plaintextLength);
+            expect(synthetic.numBlocks).to.equal(numBlocks);
+            expect(synthetic.numGates).to.equal(numGates);
 
-        const row: LargeCircuitGasBreakdown = {
-            label: "900 MiB equivalent hardcoded SHA256 hCircuit membership",
-            plaintextLengthBytes: plaintextLength,
-            numBlocks,
-            numGates,
-            proofDepth,
-            configure: synthetic.configureGas,
-            triggerDispute: synthetic.triggerDisputeGas,
-            normalHCircuitProofGas,
-            hardcodedAesGateGas,
-            hardcodedShaGateGas,
-            hardcodedFinalGateGas,
-            bestHardcodedSaving: normalHCircuitProofGas - minBigInt(hardcodedGateGases),
-            worstHardcodedSaving: normalHCircuitProofGas - maxBigInt(hardcodedGateGases),
-        };
+            const shaStart = numBlocks + 3n;
+            const hardcodedAesGateGas =
+                await synthetic.dispute.expectedHardcodedGateHash.estimateGas(Number(numBlocks));
+            const hardcodedShaGateGas =
+                await synthetic.dispute.expectedHardcodedGateHash.estimateGas(Number(shaStart));
+            const hardcodedFinalGateGas =
+                await synthetic.dispute.expectedHardcodedGateHash.estimateGas(Number(numGates));
+            const hardcodedGateGases = [
+                hardcodedAesGateGas,
+                hardcodedShaGateGas,
+                hardcodedFinalGateGas,
+            ];
 
-        const serialized = [serializeLargeCircuitGas(row)];
+            rows.push({
+                label: `${item.label} equivalent hardcoded SHA256 hCircuit membership`,
+                plaintextLengthBytes: item.plaintextLength,
+                numBlocks,
+                numGates,
+                proofDepth,
+                configure: synthetic.configureGas,
+                triggerDispute: synthetic.triggerDisputeGas,
+                normalHCircuitProofGas,
+                hardcodedAesGateGas,
+                hardcodedShaGateGas,
+                hardcodedFinalGateGas,
+                bestHardcodedSaving: normalHCircuitProofGas - minBigInt(hardcodedGateGases),
+                worstHardcodedSaving: normalHCircuitProofGas - maxBigInt(hardcodedGateGases),
+            });
+        }
+
+        const serialized = rows.map(serializeLargeCircuitGas);
         console.table(serialized);
-        console.log(`PHASE3_900MIB_EQUIV_GAS_JSON=${JSON.stringify(serialized)}`);
+        console.log(`PHASE3_LARGE_FILE_EQUIV_GAS_JSON=${JSON.stringify(serialized)}`);
 
-        expect(proofDepth).to.equal(25);
-        expect(row.worstHardcodedSaving).to.be.greaterThan(0n);
+        expect(rows[0].proofDepth).to.equal(25);
+        expect(rows[1].proofDepth).to.equal(26);
+        expect(rows[1].worstHardcodedSaving).to.be.greaterThan(0n);
     });
 });
