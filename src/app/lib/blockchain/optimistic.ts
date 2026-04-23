@@ -28,6 +28,39 @@ import {
     parseEther,
 } from "ethers";
 
+export type HardcodedSha256CircuitOptions = {
+    descriptionHash: string;
+    plaintextLength: bigint | number | string;
+    ciphertextIv: string;
+};
+
+export type PreContractVariantName =
+    | "normal"
+    | "no_S_deposit"
+    | "S_equals_B"
+    | "S_equals_V";
+
+export type Phase3VariantOptions = {
+    preContractVariant?: PreContractVariantName;
+    noSponsorDeposit?: boolean;
+    hardcodedSha256Circuit?: HardcodedSha256CircuitOptions;
+    entryPointDeposit?: bigint;
+};
+
+const PHASE3_OPTIMISTIC_ABI = [
+    "function configureHardcodedSha256Circuit(bytes32,uint64,bytes16)",
+    "function buyerUnhappyAuthorizationHash(address) view returns (bytes32)",
+    "function sendBuyerDisputeSponsorFeeWithAuthorization(bytes) payable",
+    "function noSponsorDeposit() view returns (bool)",
+    "function sponsorIsBuyer() view returns (bool)",
+    "function sponsorIsVendor() view returns (bool)",
+    "function preContractVariant() view returns (uint8)",
+    "function hardcodedSha256Circuit() view returns (bool)",
+    "function hardcodedDescriptionHash() view returns (bytes32)",
+    "function hardcodedPlaintextLength() view returns (uint64)",
+    "function hardcodedCiphertextIv() view returns (bytes16)",
+];
+
 async function getOptimisticContract(contractAddr: string): Promise<Contract> {
     if (!isAddress(contractAddr)) {
         throw new Error("Invalid contract address");
@@ -71,7 +104,8 @@ export async function deployOptimisticContract(
     commitment: string,
     numBlocks: number,
     numGates: number,
-    sponsorAddr: string
+    sponsorAddr: string,
+    phase3Options: Phase3VariantOptions = {}
 ): Promise<{
     contractAddress: string;
     sessionKeyPrivateKey: string;
@@ -121,13 +155,31 @@ export async function deployOptimisticContract(
         wallet
     );
 
-    // OptimisticSOXAccount constructor: 
+    // OptimisticSOXAccount constructor:
     // (entryPoint, vendor, buyer, agreedPrice, completionTip, disputeTip, timeoutIncrement, commitment, numBlocks, numGates, vendorSigner)
-    // Le sponsor envoie de l'ETH (msg.value) qui sera stocké dans sponsorDeposit
+    // In Phase 3 no_S_deposit mode, msg.value is 0 and sponsorDeposit is disabled.
     // vendorSigner peut être le même que vendor si non spécifié
     
     const currentNonce = await PROVIDER.getTransactionCount(sponsorAddr, "pending");
     
+    const preContractVariant: PreContractVariantName =
+        phase3Options.noSponsorDeposit
+            ? "no_S_deposit"
+            : phase3Options.preContractVariant ?? "normal";
+
+    if (preContractVariant === "S_equals_B" && sponsorAddr.toLowerCase() !== pkBuyer.toLowerCase()) {
+        throw new Error("Phase 3 S=B requires the sponsor/deployer address to be the buyer");
+    }
+    if (preContractVariant === "S_equals_V" && sponsorAddr.toLowerCase() !== pkVendor.toLowerCase()) {
+        throw new Error("Phase 3 S=V requires the sponsor/deployer address to be the vendor");
+    }
+
+    const sponsorValue =
+        preContractVariant === "no_S_deposit"
+            ? 0n
+            : preContractVariant === "S_equals_B"
+              ? BigInt(price) + BigInt(completionTip) + 5n
+              : parseEther("1");
     const contract = await factory
         .connect(wallet)
         .deploy(
@@ -142,17 +194,32 @@ export async function deployOptimisticContract(
             numBlocks,       // _numBlocks
             numGates,        // _numGates
             pkVendor,        // _vendorSigner (utilise vendor par défaut)
-            { 
-                value: parseEther("1"), // Le sponsor envoie de l'ETH ici
+            {
+                value: sponsorValue,
                 nonce: currentNonce, // Spécifier explicitement le nonce pour éviter les conflits
             }
         );
     await contract.waitForDeployment();
     const contractAddress = await contract.getAddress();
 
-    // Déposer un petit montant sur l'EntryPoint pour sponsoriser les UserOps.
-    // Ce dépôt sera récupéré par le sponsor dans completeTransaction().
-    const entryPointDeposit = parseEther("0.01");
+    if (phase3Options.hardcodedSha256Circuit) {
+        const phase3Contract = new Contract(
+            contractAddress,
+            PHASE3_OPTIMISTIC_ABI,
+            wallet
+        );
+        const configTx = await phase3Contract.configureHardcodedSha256Circuit(
+            phase3Options.hardcodedSha256Circuit.descriptionHash,
+            phase3Options.hardcodedSha256Circuit.plaintextLength,
+            phase3Options.hardcodedSha256Circuit.ciphertextIv
+        );
+        await configTx.wait();
+    }
+
+    // In Phase 3 variants other than normal, actors use direct transactions by default.
+    const entryPointDeposit =
+        phase3Options.entryPointDeposit ??
+        (preContractVariant === "normal" ? parseEther("0.01") : 0n);
     if (entryPointDeposit > 0n) {
         const entryPointContract = new Contract(
             entryPoint,
@@ -272,6 +339,7 @@ export async function getDetails(contractAddr: string) {
     if (!isAddress(contractAddr)) return;
     
     const contract = await getOptimisticContract(contractAddr);
+    const phase3Contract = new Contract(contractAddr, PHASE3_OPTIMISTIC_ABI, PROVIDER);
 
     return {
         state: await contract.currState(),
@@ -291,6 +359,14 @@ export async function getDetails(contractAddr: string) {
         commitment: await contract.commitment(),
         numBlocks: await contract.numBlocks(),
         numGates: await contract.numGates(),
+        noSponsorDeposit: await phase3Contract.noSponsorDeposit().catch(() => false),
+        sponsorIsBuyer: await phase3Contract.sponsorIsBuyer().catch(() => false),
+        sponsorIsVendor: await phase3Contract.sponsorIsVendor().catch(() => false),
+        preContractVariant: await phase3Contract.preContractVariant().catch(() => 0),
+        hardcodedSha256Circuit: await phase3Contract.hardcodedSha256Circuit().catch(() => false),
+        hardcodedDescriptionHash: await phase3Contract.hardcodedDescriptionHash().catch(() => null),
+        hardcodedPlaintextLength: await phase3Contract.hardcodedPlaintextLength().catch(() => null),
+        hardcodedCiphertextIv: await phase3Contract.hardcodedCiphertextIv().catch(() => null),
     };
 }
 
@@ -532,7 +608,9 @@ export async function sendPayment(
     const buyer = await contract.buyer();
     const agreedPrice = await contract.agreedPrice();
     const completionTip = await contract.completionTip();
-    const requiredAmount = agreedPrice + completionTip;
+    const phase3Contract = new Contract(contractAddr, PHASE3_OPTIMISTIC_ABI, PROVIDER);
+    const noSponsorDeposit = await phase3Contract.noSponsorDeposit().catch(() => false);
+    const requiredAmount = noSponsorDeposit ? agreedPrice : agreedPrice + completionTip;
     
     const wallet = new Wallet(privateKey, PROVIDER);
     const walletAddress = await wallet.getAddress();
@@ -921,9 +999,31 @@ export async function sendSbFee(sbAddr: string, contractAddr: string) {
     const walletAddress = await wallet.getAddress();
     
     try {
-        const tx = await (
-            contract.connect(wallet) as Contract
-        ).sendBuyerDisputeSponsorFee({ value: requiredAmount });
+        const buyerAddr = await contract.buyer();
+        let tx: any;
+
+        if (walletAddress.toLowerCase() === buyerAddr.toLowerCase()) {
+            tx = await (
+                contract.connect(wallet) as Contract
+            ).sendBuyerDisputeSponsorFee({ value: requiredAmount });
+        } else {
+            const buyerPrivateKey = PK_SK_MAP.get(buyerAddr);
+            if (!buyerPrivateKey) {
+                throw new Error(
+                    `Buyer authorization is required for an external SB, but no private key was found for buyer ${buyerAddr}`
+                );
+            }
+
+            const phase3Contract = new Contract(contractAddr, PHASE3_OPTIMISTIC_ABI, wallet);
+            const authHash = await phase3Contract.buyerUnhappyAuthorizationHash(walletAddress);
+            const buyerWallet = new Wallet(buyerPrivateKey, PROVIDER);
+            const buyerAuthorization = await buyerWallet.signMessage(getBytes(authHash));
+
+            tx = await phase3Contract.sendBuyerDisputeSponsorFeeWithAuthorization(
+                buyerAuthorization,
+                { value: requiredAmount }
+            );
+        }
         
         // Attendre la confirmation de la transaction
         await tx.wait();

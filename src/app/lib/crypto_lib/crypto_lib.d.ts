@@ -1,6 +1,36 @@
 /* tslint:disable */
 /* eslint-disable */
 /**
+ * Evaluates a V2 circuit with the given ciphertext and key.
+ *
+ * # Arguments
+ * * `circuit_bytes` - Serialized V2 circuit bytes
+ * * `ct` - Ciphertext bytes to evaluate
+ * * `key` - AES key in hex format
+ *
+ * # Returns
+ * An `EvaluatedCircuitV2` containing the evaluation results
+ * The values array contains: [inputs (num_blocks), gate outputs (num_gates)]
+ */
+export function evaluate_circuit_v2_wasm(circuit_bytes: Uint8Array, ct: Uint8Array, key: string): EvaluatedCircuitV2;
+/**
+ * Computes proofs for step 8a.
+ *
+ * # Arguments
+ * * `circuit_bytes` - Serialized circuit bytes
+ * * `evaluated_circuit_bytes` - Serialized evaluated circuit bytes
+ * * `ct` - Ciphertext bytes
+ * * `challenge` - Challenge point in the circuit
+ *
+ * # Returns
+ * A `FinalStepComponents` containing:
+ * - Gate information for the challenge point
+ * - Evaluated values at the challenge point
+ * - Current accumulator value
+ * - Multiple proofs (proof1, proof2, proof3, proof_ext)
+ */
+export function compute_proofs(circuit_bytes: Uint8Array, evaluated_circuit_bytes: Uint8Array, ct: Uint8Array, challenge: number): FinalStepComponents;
+/**
  * Computes the proof for step 8c.
  *
  * # Arguments
@@ -12,24 +42,6 @@
  * A JavaScript `Array` containing the proof
  */
 export function compute_proof_right(evaluated_circuit_bytes: Uint8Array, num_blocks: number, num_gates: number): Array<any>;
-/**
- * Computes the proof for step 8c (V2) - corresponds to Step 8c in paper (Section F.2).
- *
- * # Arguments
- * * `evaluated_circuit_bytes` - Serialized evaluated V2 circuit bytes
- * * `num_blocks` - Number of blocks for the ciphertext
- * * `num_gates` - Total number of gates in the circuit (n in paper notation)
- *
- * # Returns
- * A JavaScript `Array` containing the proof
- *
- * # Paper Correspondence
- * This implements Step 8c from the paper: "Case i = n + 1 following Step 8"
- * - challenge (code) = numGates corresponds to i = n + 1 in paper notation
- * - This case occurs when V said "right" for all challenges (agreed on every hpre)
- * - The proof verifies that val(n) is correct (the final gate output)
- */
-export function compute_proof_right_v2(evaluated_circuit_bytes: Uint8Array, num_blocks: number, num_gates: number): Array<any>;
 /**
  * Computes proofs for step 8b (V2) - corresponds to Step 8b in paper (Section F.2).
  *
@@ -55,84 +67,6 @@ export function compute_proof_right_v2(evaluated_circuit_bytes: Uint8Array, num_
  */
 export function compute_proofs_left_v2(circuit_bytes: Uint8Array, evaluated_circuit_bytes: Uint8Array, ct: Uint8Array, challenge: number): FinalStepComponentsV2;
 /**
- * Computes precontract values for V2 circuit. This includes encryption, V2 circuit compilation,
- * and commitment generation.
- *
- * # Arguments
- * * `file` - The file data to be encrypted
- * * `key` - The encryption key
- *
- * # Returns
- * A `Precontract` containing all necessary components for the optimistic phase of the protocol
- */
-export function compute_precontract_values_v2(file: Uint8Array, key: Uint8Array): Precontract;
-/**
- * Evaluates a V2 circuit with the given ciphertext and key.
- *
- * # Arguments
- * * `circuit_bytes` - Serialized V2 circuit bytes
- * * `ct` - Ciphertext bytes to evaluate
- * * `key` - AES key in hex format
- *
- * # Returns
- * An `EvaluatedCircuitV2` containing the evaluation results
- * The values array contains: [inputs (num_blocks), gate outputs (num_gates)]
- */
-export function evaluate_circuit_v2_wasm(circuit_bytes: Uint8Array, ct: Uint8Array, key: string): EvaluatedCircuitV2;
-/**
- * Computes the answer to send to a smart contract based on the issued challenge.
- *
- * # Arguments
- * * `evaluated_circuit_bytes` - Serialized evaluated circuit bytes
- * * `num_blocks` - Number of blocks for the ciphertext
- * * `challenge` - Challenge issued by the smart contract
- *
- * # Returns
- * The response to the challenge
- */
-export function hpre(evaluated_circuit_bytes: Uint8Array, num_blocks: number, challenge: number): Uint8Array;
-/**
- * Creates a dispute argument from the given components.
- *
- * # Arguments
- * * `ct` - Ciphertext bytes
- * * `description` - Description hash in hex format
- * * `opening_value` - Opening value in hex format
- *
- * # Returns
- * Serialized dispute argument bytes
- */
-export function make_argument(ct: Uint8Array, description: string, opening_value: string): Uint8Array;
-/**
- * Computes proofs for step 8b.
- *
- * # Arguments
- * * `circuit_bytes` - Serialized circuit bytes
- * * `evaluated_circuit_bytes` - Serialized evaluated circuit bytes
- * * `ct` - Ciphertext bytes
- * * `challenge` - Challenge point in the circuit
- *
- * # Returns
- * A `FinalStepComponents` containing:
- * - Gate information for the challenge point
- * - Evaluated values at the challenge point
- * - Current accumulator value
- * - Multiple proofs (proof1, proof2, proof_ext)
- * Note that the returning object will have a proof3 component which is an empty array.
- */
-export function compute_proofs_left(circuit_bytes: Uint8Array, evaluated_circuit_bytes: Uint8Array, ct: Uint8Array, challenge: number): FinalStepComponents;
-/**
- * Compiles a V2 circuit from ciphertext and description.
- *
- * # Arguments
- * * `ct` - Ciphertext bytes (must include 16-byte IV)
- * * `description` - Description hash as hex string
- *
- * # Returns
- * Serialized CompiledCircuitV2 bytes
- */
-export function compile_circuit_v2_wasm(ct: Uint8Array, description: string): Uint8Array;
-/**
  * Evaluates a circuit with the given ciphertext, constants, and description.
  *
  * # Arguments
@@ -151,6 +85,61 @@ export function compile_circuit_v2_wasm(ct: Uint8Array, description: string): Ui
  */
 export function evaluate_circuit(circuit_bytes: Uint8Array, ct: Uint8Array, constants: string[], description: string): EvaluatedCircuit;
 /**
+ * Verifies a dispute argument.
+ *
+ * # Arguments
+ * * `argument_bin` - Serialized dispute argument bytes
+ * * `commitment` - Commitment in hex format
+ * * `description` - Description hash in hex format
+ * * `key` - Encryption key in hex format
+ *
+ * # Returns
+ * An `ArgumentCheckResult` containing the verification results
+ */
+export function check_argument(argument_bin: Uint8Array, commitment: string, description: string, key: string): ArgumentCheckResult;
+/**
+ * Computes the answer to send to a smart contract based on the issued challenge.
+ *
+ * # Arguments
+ * * `evaluated_circuit_bytes` - Serialized evaluated circuit bytes
+ * * `num_blocks` - Number of blocks for the ciphertext
+ * * `challenge` - Challenge issued by the smart contract
+ *
+ * # Returns
+ * The response to the challenge
+ */
+export function hpre(evaluated_circuit_bytes: Uint8Array, num_blocks: number, challenge: number): Uint8Array;
+/**
+ * Verifies ciphertext decryption by checking against the description.
+ *
+ * # Arguments
+ * * `ct` - Ciphertext bytes to decrypt
+ * * `key` - Decryption key
+ * * `description` - Expected description hash in hex
+ *
+ * # Returns
+ * A `CheckCtResult` containing the verification status and decrypted data
+ */
+export function check_received_ct_key(ct: Uint8Array, key: Uint8Array, description: string): CheckCtResult;
+/**
+ * Computes the proof for step 8c (V2) - corresponds to Step 8c in paper (Section F.2).
+ *
+ * # Arguments
+ * * `evaluated_circuit_bytes` - Serialized evaluated V2 circuit bytes
+ * * `num_blocks` - Number of blocks for the ciphertext
+ * * `num_gates` - Total number of gates in the circuit (n in paper notation)
+ *
+ * # Returns
+ * A JavaScript `Array` containing the proof
+ *
+ * # Paper Correspondence
+ * This implements Step 8c from the paper: "Case i = n + 1 following Step 8"
+ * - challenge (code) = numGates corresponds to i = n + 1 in paper notation
+ * - This case occurs when V said "right" for all challenges (agreed on every hpre)
+ * - The proof verifies that val(n) is correct (the final gate output)
+ */
+export function compute_proof_right_v2(evaluated_circuit_bytes: Uint8Array, num_blocks: number, num_gates: number): Array<any>;
+/**
  * Verifies a precontract by checking the commitment and description with respect to the received
  * ciphertext.
  *
@@ -164,6 +153,76 @@ export function evaluate_circuit(circuit_bytes: Uint8Array, ct: Uint8Array, cons
  * A `CheckPrecontractResult` containing the verification status and hash values
  */
 export function check_precontract(description: string, commitment: string, opening_value: string, ct: Uint8Array): CheckPrecontractResult;
+/**
+ * Computes proofs for step 8a (V2) - corresponds to Step 8a in paper (Section F.2).
+ *
+ * # Arguments
+ * * `circuit_bytes` - Serialized V2 circuit bytes
+ * * `evaluated_circuit_bytes` - Serialized evaluated V2 circuit bytes
+ * * `ct` - Ciphertext bytes
+ * * `challenge` - Challenge point in the circuit (1-indexed gate index, matching paper notation)
+ *
+ * # Returns
+ * A `FinalStepComponentsV2` containing:
+ * - Gate information (64-byte encoded gate)
+ * - Evaluated values at the challenge point
+ * - Current accumulator value
+ * - Multiple proofs (proof1, proof2, proof3, proof_ext)
+ *
+ * # Paper Correspondence
+ * This implements Step 8a from the paper: "Case 1 < i ≤ n following Step 8"
+ * - challenge (code) = i (paper), where 1 < i ≤ n in paper notation
+ * - So challenge must satisfy: 1 < challenge ≤ numGates
+ * - The gate g_i in paper corresponds to circuit.gates[challenge - 1] in code (converting 1-indexed to 0-indexed)
+ */
+export function compute_proofs_v2(circuit_bytes: Uint8Array, evaluated_circuit_bytes: Uint8Array, ct: Uint8Array, challenge: number): FinalStepComponentsV2;
+/**
+ * Creates a dispute argument from the given components.
+ *
+ * # Arguments
+ * * `ct` - Ciphertext bytes
+ * * `description` - Description hash in hex format
+ * * `opening_value` - Opening value in hex format
+ *
+ * # Returns
+ * Serialized dispute argument bytes
+ */
+export function make_argument(ct: Uint8Array, description: string, opening_value: string): Uint8Array;
+/**
+ * Compiles a V2 circuit from ciphertext and description.
+ *
+ * # Arguments
+ * * `ct` - Ciphertext bytes (must include 16-byte IV)
+ * * `description` - Description hash as hex string
+ *
+ * # Returns
+ * Serialized CompiledCircuitV2 bytes
+ */
+export function compile_circuit_v2_wasm(ct: Uint8Array, description: string): Uint8Array;
+/**
+ * Computes precontract values for V2 circuit. This includes encryption, V2 circuit compilation,
+ * and commitment generation.
+ *
+ * # Arguments
+ * * `file` - The file data to be encrypted
+ * * `key` - The encryption key
+ *
+ * # Returns
+ * A `Precontract` containing all necessary components for the optimistic phase of the protocol
+ */
+export function compute_precontract_values_v2(file: Uint8Array, key: Uint8Array): Precontract;
+/**
+ * Computes precontract values for a file. This includes encryption, circuit compilation,
+ * and commitment generation.
+ *
+ * # Arguments
+ * * `file` - The file data to be encrypted
+ * * `key` - The encryption key
+ *
+ * # Returns
+ * A `Precontract` containing all necessary components for the optimistic phase of the protocol
+ */
+export function compute_precontract_values(file: Uint8Array, key: Uint8Array): Precontract;
 /**
  * Computes the answer to send to a smart contract based on the issued challenge (V2).
  *
@@ -193,30 +252,7 @@ export function check_precontract(description: string, commitment: string, openi
  */
 export function hpre_v2(evaluated_circuit_bytes: Uint8Array, num_blocks: number, challenge: number): Uint8Array;
 /**
- * Computes proofs for step 8a (V2) - corresponds to Step 8a in paper (Section F.2).
- *
- * # Arguments
- * * `circuit_bytes` - Serialized V2 circuit bytes
- * * `evaluated_circuit_bytes` - Serialized evaluated V2 circuit bytes
- * * `ct` - Ciphertext bytes
- * * `challenge` - Challenge point in the circuit (1-indexed gate index, matching paper notation)
- *
- * # Returns
- * A `FinalStepComponentsV2` containing:
- * - Gate information (64-byte encoded gate)
- * - Evaluated values at the challenge point
- * - Current accumulator value
- * - Multiple proofs (proof1, proof2, proof3, proof_ext)
- *
- * # Paper Correspondence
- * This implements Step 8a from the paper: "Case 1 < i ≤ n following Step 8"
- * - challenge (code) = i (paper), where 1 < i ≤ n in paper notation
- * - So challenge must satisfy: 1 < challenge ≤ numGates
- * - The gate g_i in paper corresponds to circuit.gates[challenge - 1] in code (converting 1-indexed to 0-indexed)
- */
-export function compute_proofs_v2(circuit_bytes: Uint8Array, evaluated_circuit_bytes: Uint8Array, ct: Uint8Array, challenge: number): FinalStepComponentsV2;
-/**
- * Computes proofs for step 8a.
+ * Computes proofs for step 8b.
  *
  * # Arguments
  * * `circuit_bytes` - Serialized circuit bytes
@@ -229,74 +265,10 @@ export function compute_proofs_v2(circuit_bytes: Uint8Array, evaluated_circuit_b
  * - Gate information for the challenge point
  * - Evaluated values at the challenge point
  * - Current accumulator value
- * - Multiple proofs (proof1, proof2, proof3, proof_ext)
+ * - Multiple proofs (proof1, proof2, proof_ext)
+ * Note that the returning object will have a proof3 component which is an empty array.
  */
-export function compute_proofs(circuit_bytes: Uint8Array, evaluated_circuit_bytes: Uint8Array, ct: Uint8Array, challenge: number): FinalStepComponents;
-/**
- * Verifies a dispute argument.
- *
- * # Arguments
- * * `argument_bin` - Serialized dispute argument bytes
- * * `commitment` - Commitment in hex format
- * * `description` - Description hash in hex format
- * * `key` - Encryption key in hex format
- *
- * # Returns
- * An `ArgumentCheckResult` containing the verification results
- */
-export function check_argument(argument_bin: Uint8Array, commitment: string, description: string, key: string): ArgumentCheckResult;
-/**
- * Verifies ciphertext decryption by checking against the description.
- *
- * # Arguments
- * * `ct` - Ciphertext bytes to decrypt
- * * `key` - Decryption key
- * * `description` - Expected description hash in hex
- *
- * # Returns
- * A `CheckCtResult` containing the verification status and decrypted data
- */
-export function check_received_ct_key(ct: Uint8Array, key: Uint8Array, description: string): CheckCtResult;
-/**
- * Computes precontract values for a file. This includes encryption, circuit compilation,
- * and commitment generation.
- *
- * # Arguments
- * * `file` - The file data to be encrypted
- * * `key` - The encryption key
- *
- * # Returns
- * A `Precontract` containing all necessary components for the optimistic phase of the protocol
- */
-export function compute_precontract_values(file: Uint8Array, key: Uint8Array): Precontract;
-export function hex_to_bytes(hex_str: string): Uint8Array;
-export function bytes_to_hex(vec: Uint8Array): string;
-/**
- * JavaScript wrapper for decrypt_block
- *
- * # Arguments
- * * `data` - Vector of Uint8Arrays containing:
- *   - key (16 bytes)
- *   - blocks to decrypt (<=112 bytes)
- *   - IV/counter starting value (16 bytes)
- *
- * # Returns
- * Decrypted bytes
- */
-export function decrypt_block_js(data: Uint8Array[]): Uint8Array;
-/**
- * JavaScript wrapper for encrypt_block
- *
- * # Arguments
- * * `data` - Vector of Uint8Arrays containing:
- *   - key (16 bytes)
- *   - blocks to encrypt (<=112 bytes)
- *   - IV/counter starting value (16 bytes)
- *
- * # Returns
- * Encrypted bytes
- */
-export function encrypt_block_js(data: Uint8Array[]): Uint8Array;
+export function compute_proofs_left(circuit_bytes: Uint8Array, evaluated_circuit_bytes: Uint8Array, ct: Uint8Array, challenge: number): FinalStepComponents;
 /**
  * Compiles a basic circuit for processing ciphertext. Once the key is bound, the circuit computes
  * the SHA256 hash of the initial plaintext and compares it to the provided description.
@@ -309,6 +281,18 @@ export function encrypt_block_js(data: Uint8Array[]): Uint8Array;
  * A `CompiledCircuit` configured for the given parameters
  */
 export function compile_basic_circuit(ct_size: number, description: Uint8Array): CompiledCircuit;
+/**
+ * Creates a commitment for the given data by appending random bytes and hashing
+ *
+ * # Arguments
+ * * `data` - Data to commit to
+ *
+ * # Returns
+ * A `Commitment` containing the commitment hash and opening value
+ */
+export function commit(data: Uint8Array): Commitment;
+export function bytes_to_hex(vec: Uint8Array): string;
+export function hex_to_bytes(hex_str: string): Uint8Array;
 /**
  * JavaScript-compatible wrapper for sha256_compress
  *
@@ -330,26 +314,31 @@ export function sha256_compress_js(data: Uint8Array[]): Uint8Array;
  */
 export function sha256_compress_final_js(data: Uint8Array[]): Uint8Array;
 /**
- * Creates a commitment for the given data by appending random bytes and hashing
+ * JavaScript wrapper for encrypt_block
  *
  * # Arguments
- * * `data` - Data to commit to
+ * * `data` - Vector of Uint8Arrays containing:
+ *   - key (16 bytes)
+ *   - blocks to encrypt (<=112 bytes)
+ *   - IV/counter starting value (16 bytes)
  *
  * # Returns
- * A `Commitment` containing the commitment hash and opening value
+ * Encrypted bytes
  */
-export function commit(data: Uint8Array): Commitment;
+export function encrypt_block_js(data: Uint8Array[]): Uint8Array;
 /**
- * JavaScript wrapper of the prove function
+ * JavaScript wrapper for decrypt_block
  *
  * # Arguments
- * * `values` - Array of Uint8Arrays containing all values in the tree
- * * `indices` - Array of indices for values to include in proof
+ * * `data` - Vector of Uint8Arrays containing:
+ *   - key (16 bytes)
+ *   - blocks to decrypt (<=112 bytes)
+ *   - IV/counter starting value (16 bytes)
  *
  * # Returns
- * Array of arrays of Uint8Arrays containing the proof layers
+ * Decrypted bytes
  */
-export function prove_js(values: Uint8Array[], indices: Array<any>): Array<any>;
+export function decrypt_block_js(data: Uint8Array[]): Uint8Array;
 /**
  * JavaScript wrapper of the prove_ext function
  *
@@ -370,6 +359,17 @@ export function prove_ext_js(values: Uint8Array[]): Array<any>;
  * Accumulated value as bytes
  */
 export function acc_js(values: Uint8Array[]): Uint8Array;
+/**
+ * JavaScript wrapper of the prove function
+ *
+ * # Arguments
+ * * `values` - Array of Uint8Arrays containing all values in the tree
+ * * `indices` - Array of indices for values to include in proof
+ *
+ * # Returns
+ * Array of arrays of Uint8Arrays containing the proof layers
+ */
+export function prove_js(values: Uint8Array[], indices: Array<any>): Array<any>;
 /**
  * Result of checking a dispute argument.
  */
@@ -809,7 +809,6 @@ export interface InitOutput {
   readonly __wbg_get_finalstepcomponentsv2_proof2: (a: number) => any;
   readonly __wbg_get_finalstepcomponentsv2_proof3: (a: number) => any;
   readonly __wbg_get_finalstepcomponentsv2_proof_ext: (a: number) => any;
-  readonly __wbg_set_finalstepcomponentsv2_values: (a: number, b: number, c: number) => void;
   readonly __wbg_set_checkprecontractresult_h_circuit: (a: number, b: number, c: number) => void;
   readonly __wbg_set_finalstepcomponentsv2_curr_acc: (a: number, b: number, c: number) => void;
   readonly __wbg_set_finalstepcomponentsv2_gate_bytes: (a: number, b: number, c: number) => void;
@@ -818,6 +817,7 @@ export interface InitOutput {
   readonly __wbg_set_precontract_description: (a: number, b: number, c: number) => void;
   readonly __wbg_set_precontract_h_circuit: (a: number, b: number, c: number) => void;
   readonly __wbg_set_precontract_h_ct: (a: number, b: number, c: number) => void;
+  readonly __wbg_set_finalstepcomponentsv2_values: (a: number, b: number, c: number) => void;
   readonly __wbg_set_checkctresult_success: (a: number, b: number) => void;
   readonly __wbg_get_checkctresult_success: (a: number) => number;
   readonly __wbg_get_checkprecontractresult_h_circuit: (a: number) => [number, number];
@@ -828,10 +828,6 @@ export interface InitOutput {
   readonly __wbg_get_precontract_description: (a: number) => [number, number];
   readonly __wbg_get_precontract_h_circuit: (a: number) => [number, number];
   readonly __wbg_get_precontract_h_ct: (a: number) => [number, number];
-  readonly bytes_to_hex: (a: number, b: number) => [number, number];
-  readonly hex_to_bytes: (a: number, b: number) => [number, number];
-  readonly decrypt_block_js: (a: number, b: number) => [number, number];
-  readonly encrypt_block_js: (a: number, b: number) => [number, number];
   readonly __wbg_compiledcircuit_free: (a: number, b: number) => void;
   readonly __wbg_compiledcircuitwithconstants_free: (a: number, b: number) => void;
   readonly __wbg_gate_free: (a: number, b: number) => void;
@@ -856,15 +852,19 @@ export interface InitOutput {
   readonly __wbg_set_compiledcircuitwithconstants_version: (a: number, b: number) => void;
   readonly __wbg_get_compiledcircuitwithconstants_block_size: (a: number) => number;
   readonly __wbg_get_compiledcircuitwithconstants_version: (a: number) => number;
-  readonly sha256_compress_final_js: (a: number, b: number) => [number, number];
-  readonly sha256_compress_js: (a: number, b: number) => [number, number];
   readonly __wbg_commitment_free: (a: number, b: number) => void;
   readonly __wbg_get_commitment_c: (a: number) => [number, number];
   readonly __wbg_get_commitment_o: (a: number) => [number, number];
   readonly __wbg_set_commitment_c: (a: number, b: number, c: number) => void;
   readonly __wbg_set_commitment_o: (a: number, b: number, c: number) => void;
-  readonly acc_js: (a: number, b: number) => [number, number];
   readonly commit: (a: number, b: number) => number;
+  readonly bytes_to_hex: (a: number, b: number) => [number, number];
+  readonly hex_to_bytes: (a: number, b: number) => [number, number];
+  readonly sha256_compress_final_js: (a: number, b: number) => [number, number];
+  readonly sha256_compress_js: (a: number, b: number) => [number, number];
+  readonly decrypt_block_js: (a: number, b: number) => [number, number];
+  readonly encrypt_block_js: (a: number, b: number) => [number, number];
+  readonly acc_js: (a: number, b: number) => [number, number];
   readonly prove_ext_js: (a: number, b: number) => any;
   readonly prove_js: (a: number, b: number, c: any) => any;
   readonly __wbindgen_exn_store: (a: number) => void;

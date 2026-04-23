@@ -12,6 +12,13 @@ enum OptimisticState {
     End
 }
 
+enum PreContractVariant {
+    Normal,
+    NoSDeposit,
+    SponsorIsBuyer,
+    SponsorIsVendor
+}
+
 interface IOptimisticSOX {
     function buyer() external view returns (address);
     function vendor() external view returns (address);
@@ -22,6 +29,10 @@ interface IOptimisticSOX {
     function agreedPrice() external view returns (uint256);
     function timeoutIncrement() external view returns (uint256);
     function currState() external view returns (OptimisticState);
+    function hardcodedSha256Circuit() external view returns (bool);
+    function hardcodedDescriptionHash() external view returns (bytes32);
+    function hardcodedPlaintextLength() external view returns (uint64);
+    function hardcodedCiphertextIv() external view returns (bytes16);
     function endDispute() external;
 }
 
@@ -107,6 +118,14 @@ contract OptimisticSOXAccount is IOptimisticSOX {
     bytes32 public commitment;
     uint32 public numGates;
     uint32 public numBlocks;
+    bool public noSponsorDeposit;
+    bool public sponsorIsBuyer;
+    bool public sponsorIsVendor;
+    PreContractVariant public preContractVariant;
+    bool public hardcodedSha256Circuit;
+    bytes32 public hardcodedDescriptionHash;
+    uint64 public hardcodedPlaintextLength;
+    bytes16 public hardcodedCiphertextIv;
 
     // Money states
     uint256 public sponsorDeposit;
@@ -122,6 +141,19 @@ contract OptimisticSOXAccount is IOptimisticSOX {
     event VendorSignerUpdated(address indexed previousSigner, address indexed newSigner);
     event EntryPointDeposit(address indexed from, uint256 amount);
     event EntryPointWithdrawal(address indexed to, uint256 amount);
+    event HardcodedSha256CircuitConfigured(
+        bytes32 indexed descriptionHash,
+        uint64 plaintextLength,
+        bytes16 ciphertextIv,
+        uint32 numGates
+    );
+    event BuyerSelfSponsoredDispute(address indexed buyer, uint256 amount);
+    event BuyerDisputeSponsoredWithAuthorization(
+        address indexed buyer,
+        address indexed buyerDisputeSponsor,
+        uint256 amount
+    );
+    event VendorSelfSponsoredDispute(address indexed vendor, uint256 amount, address disputeContract);
 
     // =============== MODIFIERS ===============
     modifier onlyEntryPoint() {
@@ -234,7 +266,6 @@ contract OptimisticSOXAccount is IOptimisticSOX {
         uint32 _numGates,
         address _vendorSigner
     ) payable {
-        require(msg.value >= SPONSOR_FEES, "Not enough money to cover fees");
         require(_entryPoint != address(0), "EntryPoint required");
         
         entryPoint = IEntryPoint(_entryPoint);
@@ -251,7 +282,35 @@ contract OptimisticSOXAccount is IOptimisticSOX {
         commitment = _commitment;
         numBlocks = _numBlocks;
         numGates = _numGates;
-        
+
+        if (msg.value == 0) {
+            noSponsorDeposit = true;
+            preContractVariant = PreContractVariant.NoSDeposit;
+            nextState(OptimisticState.WaitPayment);
+            return;
+        }
+
+        if (msg.sender == _buyer) {
+            require(
+                msg.value >= _agreedPrice + _completionTip + SPONSOR_FEES,
+                "Not enough money for fused S=B deposits"
+            );
+            sponsorIsBuyer = true;
+            preContractVariant = PreContractVariant.SponsorIsBuyer;
+            buyerDeposit = _agreedPrice + _completionTip;
+            sponsorTip = _completionTip;
+            sponsorDeposit = msg.value - buyerDeposit;
+            nextState(OptimisticState.WaitKey);
+            return;
+        }
+
+        require(msg.value >= SPONSOR_FEES, "Not enough money to cover fees");
+        sponsorDeposit = msg.value;
+        if (msg.sender == _vendor) {
+            sponsorIsVendor = true;
+            preContractVariant = PreContractVariant.SponsorIsVendor;
+        }
+
         nextState(OptimisticState.WaitPayment);
     }
 
@@ -267,6 +326,7 @@ contract OptimisticSOXAccount is IOptimisticSOX {
     }
 
     function depositToEntryPoint() external payable {
+        require(!noSponsorDeposit, "Sponsoring disabled");
         entryPoint.depositTo{value: msg.value}(address(this));
         emit EntryPointDeposit(msg.sender, msg.value);
     }
@@ -289,6 +349,7 @@ contract OptimisticSOXAccount is IOptimisticSOX {
         nonce++;
 
         if (missingAccountFunds > 0) {
+            require(!noSponsorDeposit, "Sponsoring disabled");
             entryPoint.depositTo{value: missingAccountFunds}(address(this));
             emit EntryPointDeposit(msg.sender, missingAccountFunds);
         }
@@ -333,19 +394,75 @@ contract OptimisticSOXAccount is IOptimisticSOX {
 
     receive() external payable {}
 
+    /**
+     * @notice Enables the Phase 3 hard-coded circuit variant for desc = SHA256(file).
+     * @dev The metadata is enough to derive every V2 gate on-chain. This avoids
+     *      accepting arbitrary gate bytes when the hCircuit Merkle proof is skipped.
+     */
+    function configureHardcodedSha256Circuit(
+        bytes32 _descriptionHash,
+        uint64 _plaintextLength,
+        bytes16 _ciphertextIv
+    ) external {
+        bool canConfigureBeforePayment = currState == OptimisticState.WaitPayment;
+        bool canConfigureFusedSponsorBuyer =
+            sponsorIsBuyer && currState == OptimisticState.WaitKey && msg.sender == sponsor;
+        require(
+            canConfigureBeforePayment || canConfigureFusedSponsorBuyer,
+            "Configure before payment or key"
+        );
+        require(msg.sender == sponsor || msg.sender == vendor, "Only sponsor or vendor");
+        require(_plaintextLength > 0, "Plaintext length required");
+        require(_plaintextLength <= type(uint64).max / 8, "Plaintext length too large");
+        require(
+            _numBlocksForPlaintextLength(_plaintextLength) == numBlocks,
+            "Plaintext length mismatch"
+        );
+        require(
+            _hardcodedSha256GateCount(_plaintextLength, numBlocks) == numGates,
+            "Hardcoded gate count mismatch"
+        );
+
+        hardcodedSha256Circuit = true;
+        hardcodedDescriptionHash = _descriptionHash;
+        hardcodedPlaintextLength = _plaintextLength;
+        hardcodedCiphertextIv = _ciphertextIv;
+
+        emit HardcodedSha256CircuitConfigured(
+            _descriptionHash,
+            _plaintextLength,
+            _ciphertextIv,
+            numGates
+        );
+    }
+
+    function expectedHardcodedSha256NumBlocks(uint64 _plaintextLength) public pure returns (uint32) {
+        return _numBlocksForPlaintextLength(_plaintextLength);
+    }
+
+    function expectedHardcodedSha256NumGates(uint64 _plaintextLength) public pure returns (uint32) {
+        uint32 blocks = _numBlocksForPlaintextLength(_plaintextLength);
+        return _hardcodedSha256GateCount(_plaintextLength, blocks);
+    }
+
     // =============== OPTIMISTIC PHASE FUNCTIONS (from OptimisticSOX) ===============
     function sendPayment()
         public
         payable
         onlyExpected(buyer, OptimisticState.WaitPayment)
     {
+        uint256 requiredDeposit = noSponsorDeposit ? agreedPrice : agreedPrice + completionTip;
         require(
-            msg.value >= agreedPrice + completionTip,
-            "Agreed price and completion tip is higher than deposit"
+            msg.value >= requiredDeposit,
+            "Payment deposit is too low"
         );
 
-        buyerDeposit = msg.value;
-        sponsorTip = buyerDeposit - agreedPrice;
+        buyerDeposit = requiredDeposit;
+        sponsorTip = noSponsorDeposit ? 0 : buyerDeposit - agreedPrice;
+
+        if (msg.value > requiredDeposit) {
+            payable(buyer).transfer(msg.value - requiredDeposit);
+        }
 
         nextState(OptimisticState.WaitKey);
     }
@@ -357,7 +474,52 @@ contract OptimisticSOXAccount is IOptimisticSOX {
         nextState(OptimisticState.WaitSB);
     }
 
-    function sendBuyerDisputeSponsorFee() public payable {
+    function sendBuyerDisputeSponsorFee()
+        public
+        payable
+        onlyExpected(buyer, OptimisticState.WaitSB)
+    {
+        _sendBuyerDisputeSponsorFee(buyer);
+        emit BuyerSelfSponsoredDispute(buyer, msg.value);
+    }
+
+    function sendBuyerSelfDisputeSponsorFee()
+        public
+        payable
+        onlyExpected(buyer, OptimisticState.WaitSB)
+    {
+        _sendBuyerDisputeSponsorFee(buyer);
+        emit BuyerSelfSponsoredDispute(buyer, msg.value);
+    }
+
+    function sendBuyerDisputeSponsorFeeWithAuthorization(
+        bytes calldata _buyerAuthorization
+    ) public payable {
+        address authorizedBuyer = buyerUnhappyAuthorizationHash(msg.sender)
+            .toEthSignedMessageHash()
+            .recover(_buyerAuthorization);
+        require(authorizedBuyer == buyer, "Invalid buyer unhappy authorization");
+
+        _sendBuyerDisputeSponsorFee(msg.sender);
+        emit BuyerDisputeSponsoredWithAuthorization(buyer, msg.sender, msg.value);
+    }
+
+    function buyerUnhappyAuthorizationHash(
+        address _buyerDisputeSponsor
+    ) public view returns (bytes32) {
+        return keccak256(
+            abi.encodePacked(
+                "SOX_BUYER_UNHAPPY",
+                block.chainid,
+                address(this),
+                buyer,
+                _buyerDisputeSponsor,
+                commitment
+            )
+        );
+    }
+
+    function _sendBuyerDisputeSponsorFee(address _buyerDisputeSponsor) internal {
         require(
             currState == OptimisticState.WaitSB,
             "Cannot run this function in the current state"
@@ -368,13 +530,29 @@ contract OptimisticSOXAccount is IOptimisticSOX {
             "Not enough money deposited to cover dispute fees + tip"
         );
 
-        buyerDisputeSponsor = msg.sender;
+        buyerDisputeSponsor = _buyerDisputeSponsor;
         sbDeposit = msg.value;
         sbTip = msg.value - DISPUTE_FEES;
         nextState(OptimisticState.WaitSV);
     }
 
     function sendVendorDisputeSponsorFee() public payable {
+        _sendVendorDisputeSponsorFee(msg.sender, msg.sender);
+    }
+
+    function sendVendorSelfDisputeSponsorFee()
+        public
+        payable
+        onlyExpected(vendor, OptimisticState.WaitSV)
+    {
+        _sendVendorDisputeSponsorFee(vendor, vendor);
+        emit VendorSelfSponsoredDispute(vendor, msg.value, disputeContract);
+    }
+
+    function _sendVendorDisputeSponsorFee(
+        address _vendorDisputeSponsor,
+        address _vendorDisputeSponsorSigner
+    ) internal {
         require(
             currState == OptimisticState.WaitSV,
             "Cannot run this function in the current state"
@@ -387,7 +565,7 @@ contract OptimisticSOXAccount is IOptimisticSOX {
 
         // Définir vendorDisputeSponsor AVANT de déployer, et passer le sponsor
         // explicitement au constructeur pour éviter toute ambiguïté sur le storage.
-        vendorDisputeSponsor = msg.sender;
+        vendorDisputeSponsor = _vendorDisputeSponsor;
         svDeposit = msg.value;
         svTip = msg.value - DISPUTE_FEES - agreedPrice;
 
@@ -402,8 +580,8 @@ contract OptimisticSOXAccount is IOptimisticSOX {
             buyer,  // _buyerSigner
             vendor,  // _vendorSigner
             buyerDisputeSponsor,  // _buyerDisputeSponsorSigner
-            msg.sender,  // _vendorDisputeSponsor (sponsor explicite)
-            msg.sender  // _vendorDisputeSponsorSigner (utiliser msg.sender directement au lieu de vendorDisputeSponsor)
+            _vendorDisputeSponsor,  // _vendorDisputeSponsor (sponsor explicite)
+            _vendorDisputeSponsorSigner  // _vendorDisputeSponsorSigner
         );
 
         nextState(OptimisticState.InDispute);
@@ -421,7 +599,7 @@ contract OptimisticSOXAccount is IOptimisticSOX {
         
         // Withdraw any remaining EntryPoint deposit to the sponsor before transferring balance
         uint256 entryPointDeposit = entryPoint.balanceOf(address(this));
-        if (entryPointDeposit > 0) {
+        if (!noSponsorDeposit && entryPointDeposit > 0) {
             entryPoint.withdrawTo(payable(sponsor), entryPointDeposit);
         }
         
@@ -440,7 +618,7 @@ contract OptimisticSOXAccount is IOptimisticSOX {
             payable(sponsor).transfer(address(this).balance);
             return nextState(OptimisticState.End);
         } else if (currState == OptimisticState.WaitSV) {
-            payable(buyerDisputeSponsor).transfer(sbDeposit + sbTip);
+            payable(buyerDisputeSponsor).transfer(sbDeposit);
             payable(buyer).transfer(agreedPrice);
             payable(sponsor).transfer(address(this).balance);
             return nextState(OptimisticState.End);
@@ -457,6 +635,25 @@ contract OptimisticSOXAccount is IOptimisticSOX {
     function nextState(OptimisticState _s) internal {
         currState = _s;
         nextTimeoutTime = block.timestamp + timeoutIncrement;
+    }
+
+    function _numBlocksForPlaintextLength(uint64 _plaintextLength) internal pure returns (uint32) {
+        require(_plaintextLength > 0, "Plaintext length required");
+        uint256 blocks = (uint256(_plaintextLength) + 63) / 64;
+        require(blocks <= type(uint32).max, "Too many blocks");
+        return uint32(blocks);
+    }
+
+    function _hardcodedSha256GateCount(
+        uint64 _plaintextLength,
+        uint32 _numBlocks
+    ) internal pure returns (uint32) {
+        require(_numBlocks <= (type(uint32).max - 8) / 2, "Too many gates");
+        uint64 rem = _plaintextLength % 64;
+        if (rem > 55) {
+            return _numBlocks * 2 + 8;
+        }
+        return _numBlocks * 2 + 5;
     }
 
     function _call(address _target, uint256 _value, bytes calldata _data) internal {

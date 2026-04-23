@@ -85,6 +85,9 @@ error MismatchedBatchLengths();
 error InvalidGateBytes();
 error InvalidV2SonIndex();
 error TransactionReverted();
+error MissingHardcodedCircuitMetadata();
+error HardcodedCircuitMetadataMismatch();
+error HardcodedGateMismatch();
 
 contract DisputeSOXAccount {
     using ECDSA for bytes32;
@@ -177,6 +180,16 @@ contract DisputeSOXAccount {
     uint32 public constant circuitVersion = 1;
 
     /**
+     * @dev Phase 3 variant: when true, the circuit is the canonical V2
+     *      AES-CTR decrypt + SHA256(description) circuit and gate membership
+     *      can be checked by deriving gate bytes on-chain.
+     */
+    bool public immutable hardcodedSha256Circuit;
+    bytes32 public immutable hardcodedDescriptionHash;
+    uint64 public immutable hardcodedPlaintextLength;
+    bytes16 public immutable hardcodedCiphertextIv;
+
+    /**
      * @dev The first value used for the challenge
      */
     uint32 public a;
@@ -243,6 +256,16 @@ contract DisputeSOXAccount {
         uint32 a;
         uint32 b;
         uint32 chall;
+    }
+
+    struct HardcodedLayout {
+        uint8 paddingCase; // 0: rem==0, 1: rem<=55, 2: rem>55
+        uint32 shaStart;
+        uint32 blockCount;
+        uint32 descGate;
+        uint32 compGate;
+        uint32 paddedBlockGate;
+        uint32 extraBlockGate;
     }
 
     // =============== EVENTS ===============
@@ -353,6 +376,33 @@ contract DisputeSOXAccount {
         numBlocks = _numBlocks;
         numGates = _numGates;
         commitment = _commitment;
+
+        bool configuredHardcodedCircuit = optimisticContract.hardcodedSha256Circuit();
+        bytes32 configuredDescriptionHash = configuredHardcodedCircuit
+            ? optimisticContract.hardcodedDescriptionHash()
+            : bytes32(0);
+        uint64 configuredPlaintextLength = configuredHardcodedCircuit
+            ? optimisticContract.hardcodedPlaintextLength()
+            : 0;
+        bytes16 configuredCiphertextIv = configuredHardcodedCircuit
+            ? optimisticContract.hardcodedCiphertextIv()
+            : bytes16(0);
+
+        hardcodedSha256Circuit = configuredHardcodedCircuit;
+        hardcodedDescriptionHash = configuredDescriptionHash;
+        hardcodedPlaintextLength = configuredPlaintextLength;
+        hardcodedCiphertextIv = configuredCiphertextIv;
+
+        if (configuredHardcodedCircuit) {
+            if (configuredPlaintextLength == 0) revert MissingHardcodedCircuitMetadata();
+            if (configuredPlaintextLength > type(uint64).max / 8) revert HardcodedCircuitMetadataMismatch();
+            if (_numBlocksForPlaintextLength(configuredPlaintextLength) != _numBlocks) {
+                revert HardcodedCircuitMetadataMismatch();
+            }
+            if (_hardcodedSha256GateCount(configuredPlaintextLength, _numBlocks) != _numGates) {
+                revert HardcodedCircuitMetadataMismatch();
+            }
+        }
 
         // V2: challenge over gate indices (1-indexed, matching paper notation)
         // Paper: a = 1, b = n+1
@@ -565,10 +615,9 @@ contract DisputeSOXAccount {
 
         // compute the hashes that will be used as leaves for the merkle trees
         bytes32[] memory valuesKeccak = _hashBytesArray(_values);
-        bytes32[] memory gateKeccak = new bytes32[](1);
         
         if (_gateBytes.length != 64) revert InvalidGateBytes();
-        gateKeccak[0] = keccak256(_gateBytes);
+        bytes32 gateHash = keccak256(_gateBytes);
         bytes16 aesKey = getAesKey();
         
         // For V2, _values contains the evaluated son values (from get_evaluated_sons)
@@ -584,20 +633,9 @@ contract DisputeSOXAccount {
             bytes32[] memory vNotInL
         ) = _extractInAndNotInL_V2(_gateBytes, valuesKeccak, numBlocks);
 
-        // can't just use [_gateNum], need to create a separate array for this...
-        // AccumulatorVerifier.verify expects 0-indexed indices (matching proof generation),
-        // but _gateNum is now 1-indexed (matching paper notation), so convert: _gateNum - 1
-        uint32[] memory gateNumArray = new uint32[](1);
-        gateNumArray[0] = _gateNum - 1;
-
         if (
             buyerResponses[_gateNum] != _currAcc && // w_i != w'_i
-            AccumulatorVerifier.verify(
-                hCircuitCt[0], // hCircuit
-                gateNumArray,
-                gateKeccak,
-                _proof1
-            ) &&
+            _verifyCircuitGate(_gateNum, hCircuitCt[0], gateHash, _proof1) &&
             AccumulatorVerifier.verify(
                 hCircuitCt[1], // hCt
                 sInL,
@@ -687,8 +725,7 @@ contract DisputeSOXAccount {
         if (_gateBytes.length != 64) revert InvalidGateBytes();
         
         bytes32[] memory valuesKeccak = _hashBytesArray(_values);
-        bytes32[] memory gateKeccak = new bytes32[](1);
-        gateKeccak[0] = keccak256(_gateBytes);
+        bytes32 gateHash = keccak256(_gateBytes);
         
         bytes16 aesKey = getAesKey();
         
@@ -696,19 +733,9 @@ contract DisputeSOXAccount {
         bytes memory gateRes = EvaluatorSOX_V2.evaluateGateFromSons(_gateBytes, _values, aesKey);
         (uint32[] memory nonConstantSons, bytes32[] memory nonConstantValuesKeccak) = _extractNonConstantSons_V2(_gateBytes, valuesKeccak, numBlocks);
 
-        // AccumulatorVerifier.verify expects 0-indexed indices (matching proof generation),
-        // but _gateNum is now 1-indexed (matching paper notation), so convert: _gateNum - 1
-        uint32[] memory gateNumArray = new uint32[](1);
-        gateNumArray[0] = _gateNum - 1;
-
         // Verify proofs: if they pass, vendor wins (files are identical, vendor did not lie)
         return (
-            AccumulatorVerifier.verify(
-                hCircuitCt[0],
-                gateNumArray,
-                gateKeccak,
-                _proof1
-            ) &&
+            _verifyCircuitGate(_gateNum, hCircuitCt[0], gateHash, _proof1) &&
             AccumulatorVerifier.verify(
                 hCircuitCt[1],
                 nonConstantSons,
@@ -749,7 +776,7 @@ contract DisputeSOXAccount {
         // COMP gate returns 64 bytes: [0x01, 0x00, ..., 0x00] if equal, [0x00, ..., 0x00] if not equal
         // We need to hash the full 64-byte output, not just 0x01
         bytes memory trueBytes = new bytes(64);
-        trueBytes[0] = 0x01; // First byte is 1, rest are zeros
+        trueBytes[0] = bytes1(uint8(0x01)); // First byte is 1, rest are zeros
         bytes32 expectedValue = keccak256(trueBytes);
         bytes32[] memory trueKeccakArr = new bytes32[](1);
         trueKeccakArr[0] = expectedValue;
@@ -951,6 +978,11 @@ contract DisputeSOXAccount {
         return getBuyerResponse(chall);
     }
 
+    function expectedHardcodedGateHash(uint32 _gateNum) external view returns (bytes32) {
+        if (!hardcodedSha256Circuit) revert MissingHardcodedCircuitMetadata();
+        return _expectedHardcodedGateHash(_gateNum);
+    }
+
     // =============== PRIVATE HELPER FUNCTIONS ===============
     function _call(address _target, uint256 _value, bytes calldata _data) internal {
         (bool success, bytes memory result) = _target.call{value: _value}(_data);
@@ -979,6 +1011,245 @@ contract DisputeSOXAccount {
         if (recovered == vendorDisputeSponsorSigner) return Role.VendorDisputeSponsor;
 
         revert InvalidSignature();
+    }
+
+    function _verifyCircuitGate(
+        uint32 _gateNum,
+        bytes32 _hCircuit,
+        bytes32 _gateHash,
+        bytes32[][] memory _proof1
+    ) internal view returns (bool) {
+        if (!hardcodedSha256Circuit) {
+            uint32[] memory gateNumArray = new uint32[](1);
+            gateNumArray[0] = _gateNum - 1;
+
+            bytes32[] memory gateKeccak = new bytes32[](1);
+            gateKeccak[0] = _gateHash;
+
+            return AccumulatorVerifier.verify(_hCircuit, gateNumArray, gateKeccak, _proof1);
+        }
+
+        return _gateHash == _expectedHardcodedGateHash(_gateNum);
+    }
+
+    function _expectedHardcodedGateHash(uint32 _gateNum) internal view returns (bytes32) {
+        HardcodedLayout memory layout = _hardcodedLayout();
+
+        if (_gateNum >= 1 && _gateNum <= numBlocks) {
+            return keccak256(_encodeAesGate(_gateNum));
+        }
+
+        if (layout.paddingCase == 0) {
+            if (_gateNum == numBlocks + 1) {
+                (bytes32 head, ) = _extraPaddingWords(true);
+                return keccak256(_encodeConstGate0(head));
+            }
+            if (_gateNum == numBlocks + 2) {
+                (, bytes32 tail) = _extraPaddingWords(true);
+                return keccak256(_encodeConstGate1(numBlocks + 1, tail));
+            }
+        } else {
+            if (_gateNum == numBlocks + 1) {
+                (bytes32 head, ) = _paddingMaskWords();
+                return keccak256(_encodeConstGate0(head));
+            }
+            if (_gateNum == numBlocks + 2) {
+                (, bytes32 tail) = _paddingMaskWords();
+                return keccak256(_encodeConstGate1(numBlocks + 1, tail));
+            }
+            if (_gateNum == numBlocks + 3) {
+                return keccak256(_encodeBinaryGate(0x04, numBlocks, numBlocks + 2));
+            }
+            if (layout.paddingCase == 2) {
+                if (_gateNum == numBlocks + 4) {
+                    (bytes32 head, ) = _extraPaddingWords(false);
+                    return keccak256(_encodeConstGate0(head));
+                }
+                if (_gateNum == numBlocks + 5) {
+                    (, bytes32 tail) = _extraPaddingWords(false);
+                    return keccak256(_encodeConstGate1(numBlocks + 4, tail));
+                }
+            }
+        }
+
+        if (_gateNum >= layout.shaStart && _gateNum < layout.descGate) {
+            uint32 step = _gateNum - layout.shaStart + 1;
+            uint32 blockGate = _hardcodedBlockOutputGate(step, layout);
+            if (step == 1) {
+                return keccak256(_encodeUnaryGate(0x02, blockGate));
+            }
+            return keccak256(_encodeBinaryGate(0x02, _gateNum - 1, blockGate));
+        }
+
+        if (_gateNum == layout.descGate) {
+            return keccak256(_encodeConstGate0(hardcodedDescriptionHash));
+        }
+
+        if (_gateNum == layout.compGate) {
+            return keccak256(_encodeBinaryGate(0x05, layout.descGate - 1, layout.descGate));
+        }
+
+        revert HardcodedGateMismatch();
+    }
+
+    function _hardcodedLayout() internal view returns (HardcodedLayout memory layout) {
+        uint64 rem = hardcodedPlaintextLength % 64;
+        if (rem == 0) {
+            layout.paddingCase = 0;
+            layout.paddedBlockGate = numBlocks + 2;
+            layout.shaStart = numBlocks + 3;
+            layout.blockCount = numBlocks + 1;
+        } else if (rem > 55) {
+            layout.paddingCase = 2;
+            layout.paddedBlockGate = numBlocks + 3;
+            layout.extraBlockGate = numBlocks + 5;
+            layout.shaStart = numBlocks + 6;
+            layout.blockCount = numBlocks + 1;
+        } else {
+            layout.paddingCase = 1;
+            layout.paddedBlockGate = numBlocks + 3;
+            layout.shaStart = numBlocks + 4;
+            layout.blockCount = numBlocks;
+        }
+
+        layout.descGate = layout.shaStart + layout.blockCount;
+        layout.compGate = layout.descGate + 1;
+    }
+
+    function _hardcodedBlockOutputGate(
+        uint32 _blockNumber,
+        HardcodedLayout memory _layout
+    ) internal view returns (uint32) {
+        if (_layout.paddingCase == 0) {
+            if (_blockNumber <= numBlocks) return _blockNumber;
+            return _layout.paddedBlockGate;
+        }
+
+        if (_blockNumber < numBlocks) return _blockNumber;
+        if (_blockNumber == numBlocks) return _layout.paddedBlockGate;
+        return _layout.extraBlockGate;
+    }
+
+    function _encodeAesGate(uint32 _gateNum) internal view returns (bytes memory gate) {
+        gate = new bytes(64);
+        gate[0] = bytes1(uint8(0x01));
+        _writeSon(gate, 1, -int256(uint256(_gateNum)));
+
+        uint128 ivValue = uint128(hardcodedCiphertextIv);
+        uint128 increment = uint128((uint256(_gateNum) - 1) * 4);
+        _writeBytes16(gate, 7, bytes16(ivValue + increment));
+
+        uint256 consumed = (uint256(_gateNum) - 1) * 64;
+        uint256 remaining = uint256(hardcodedPlaintextLength) - consumed;
+        uint256 blockBytes = remaining > 64 ? 64 : remaining;
+        uint16 lenBits = uint16(blockBytes * 8);
+        gate[23] = bytes1(uint8(lenBits >> 8));
+        gate[24] = bytes1(uint8(lenBits));
+    }
+
+    function _encodeConstGate0(bytes32 _word) internal pure returns (bytes memory gate) {
+        gate = new bytes(64);
+        gate[0] = bytes1(uint8(0x03));
+        _writeBytes32(gate, 1, _word);
+    }
+
+    function _encodeConstGate1(uint32 _son, bytes32 _word) internal pure returns (bytes memory gate) {
+        gate = new bytes(64);
+        gate[0] = bytes1(uint8(0x03));
+        _writeSon(gate, 1, int256(uint256(_son)));
+        _writeBytes32(gate, 7, _word);
+    }
+
+    function _encodeUnaryGate(uint8 _opcode, uint32 _son) internal pure returns (bytes memory gate) {
+        gate = new bytes(64);
+        gate[0] = bytes1(_opcode);
+        _writeSon(gate, 1, int256(uint256(_son)));
+    }
+
+    function _encodeBinaryGate(
+        uint8 _opcode,
+        uint32 _son1,
+        uint32 _son2
+    ) internal pure returns (bytes memory gate) {
+        gate = new bytes(64);
+        gate[0] = bytes1(_opcode);
+        _writeSon(gate, 1, int256(uint256(_son1)));
+        _writeSon(gate, 7, int256(uint256(_son2)));
+    }
+
+    function _paddingMaskWords() internal view returns (bytes32 head, bytes32 tail) {
+        bytes memory blockData = new bytes(64);
+        uint64 rem = hardcodedPlaintextLength % 64;
+        blockData[uint256(rem)] = bytes1(uint8(0x80));
+        if (rem <= 55) {
+            _writeUint64(blockData, 56, uint64(uint256(hardcodedPlaintextLength) * 8));
+        }
+        return (_wordFromBytes(blockData, 0), _wordFromBytes(blockData, 32));
+    }
+
+    function _extraPaddingWords(bool _fullBlockCase) internal view returns (bytes32 head, bytes32 tail) {
+        bytes memory blockData = new bytes(64);
+        if (_fullBlockCase) {
+            blockData[0] = bytes1(uint8(0x80));
+        }
+        _writeUint64(blockData, 56, uint64(uint256(hardcodedPlaintextLength) * 8));
+        return (_wordFromBytes(blockData, 0), _wordFromBytes(blockData, 32));
+    }
+
+    function _writeSon(bytes memory _out, uint256 _offset, int256 _value) internal pure {
+        require(_value >= -0x800000000000 && _value <= 0x7FFFFFFFFFFF, "Son out of range");
+        uint256 encoded = _value < 0
+            ? uint256(int256(0x1000000000000) + _value)
+            : uint256(_value);
+
+        for (uint256 i = 0; i < 6; i++) {
+            _out[_offset + i] = bytes1(uint8(encoded >> (8 * (5 - i))));
+        }
+    }
+
+    function _writeBytes16(bytes memory _out, uint256 _offset, bytes16 _value) internal pure {
+        for (uint256 i = 0; i < 16; i++) {
+            _out[_offset + i] = _value[i];
+        }
+    }
+
+    function _writeBytes32(bytes memory _out, uint256 _offset, bytes32 _value) internal pure {
+        for (uint256 i = 0; i < 32; i++) {
+            _out[_offset + i] = _value[i];
+        }
+    }
+
+    function _writeUint64(bytes memory _out, uint256 _offset, uint64 _value) internal pure {
+        for (uint256 i = 0; i < 8; i++) {
+            _out[_offset + i] = bytes1(uint8(_value >> (8 * (7 - i))));
+        }
+    }
+
+    function _wordFromBytes(bytes memory _data, uint256 _offset) internal pure returns (bytes32) {
+        uint256 word = 0;
+        for (uint256 i = 0; i < 32; i++) {
+            word = (word << 8) | uint8(_data[_offset + i]);
+        }
+        return bytes32(word);
+    }
+
+    function _numBlocksForPlaintextLength(uint64 _plaintextLength) internal pure returns (uint32) {
+        if (_plaintextLength == 0) revert MissingHardcodedCircuitMetadata();
+        uint256 blocks = (uint256(_plaintextLength) + 63) / 64;
+        if (blocks > type(uint32).max) revert HardcodedCircuitMetadataMismatch();
+        return uint32(blocks);
+    }
+
+    function _hardcodedSha256GateCount(
+        uint64 _plaintextLength,
+        uint32 _numBlocks
+    ) internal pure returns (uint32) {
+        if (_numBlocks > (type(uint32).max - 8) / 2) revert HardcodedCircuitMetadataMismatch();
+        uint64 rem = _plaintextLength % 64;
+        if (rem > 55) {
+            return _numBlocks * 2 + 8;
+        }
+        return _numBlocks * 2 + 5;
     }
 
     // =============== INTERNAL HELPER FUNCTIONS (from DisputeSOXHelpers) ===============

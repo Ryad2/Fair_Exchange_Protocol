@@ -96,6 +96,19 @@ describe("Scénario: Vendor Honnête vs Buyer Menteur", function () {
         console.log(`✅ EntryPoint déployé`);
     });
     
+    async function sendAuthorizedBuyerDisputeSponsorFee() {
+        const authHash = await optimisticAccount.buyerUnhappyAuthorizationHash(
+            await buyerDisputeSponsor.getAddress()
+        );
+        const authorization = await buyer.signMessage(ethers.getBytes(authHash));
+
+        await optimisticAccount
+            .connect(buyerDisputeSponsor)
+            .sendBuyerDisputeSponsorFeeWithAuthorization(authorization, {
+                value: DISPUTE_FEES + DISPUTE_TIP,
+            });
+    }
+
     it("Devrait détecter que le buyer a menti et faire gagner le vendor", async function () {
         this.timeout(300000); // 5 minutes
         
@@ -156,9 +169,7 @@ describe("Scénario: Vendor Honnête vs Buyer Menteur", function () {
         console.log("\n3️⃣ Configuration de la phase optimiste...");
         await optimisticAccount.connect(buyer).sendPayment({ value: AGREED_PRICE + COMPLETION_TIP });
         await optimisticAccount.connect(vendor).sendKey(key);
-        await optimisticAccount.connect(buyerDisputeSponsor).sendBuyerDisputeSponsorFee({
-            value: DISPUTE_FEES + DISPUTE_TIP
-        });
+        await sendAuthorizedBuyerDisputeSponsorFee();
         await optimisticAccount.connect(vendorDisputeSponsor).sendVendorDisputeSponsorFee({
             value: DISPUTE_FEES + DISPUTE_TIP + AGREED_PRICE
         });

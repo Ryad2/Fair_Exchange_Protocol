@@ -16,6 +16,24 @@ describe("OptimisticSOXAccount", () => {
         [buyer, vendor, sponsor, other] = await ethers.getSigners();
     });
 
+    async function packedUserOp(
+        sender: string,
+        nonce: number,
+        signature: string
+    ) {
+        return {
+            sender,
+            nonce,
+            initCode: "0x",
+            callData: "0x",
+            accountGasLimits: ethers.ZeroHash,
+            preVerificationGas: 0,
+            gasFees: ethers.ZeroHash,
+            paymasterAndData: "0x",
+            signature,
+        };
+    }
+
     async function deployAccountFixture() {
         const sponsorAmount = ethers.parseEther("1");
         const agreedPrice = ethers.parseEther("0.2");
@@ -110,29 +128,17 @@ describe("OptimisticSOXAccount", () => {
         );
         const missingFunds = ethers.parseEther("0.05");
 
-        const userOp = {
-            sender: await account.getAddress(),
-            nonce: 0,
-            initCode: "0x",
-            callData: "0x",
-            callGasLimit: 0,
-            verificationGasLimit: 0,
-            preVerificationGas: 0,
-            maxFeePerGas: 0,
-            maxPriorityFeePerGas: 0,
-            paymasterAndData: "0x",
-            signature,
-        };
+        const userOp = await packedUserOp(await account.getAddress(), 0, signature);
 
-        const validation = await entryPoint.callValidateUserOp(
+        const tx = await entryPoint.callValidateUserOp(
             await account.getAddress(),
             userOp,
             userOpHash,
             missingFunds,
             { value: missingFunds }
         );
+        await tx.wait();
 
-        await expect(validation).to.equal(0);
         expect(await account.nonce()).to.equal(1n);
         expect(
             await entryPoint.balanceOf(await account.getAddress())
@@ -142,20 +148,8 @@ describe("OptimisticSOXAccount", () => {
     it("reverts on invalid signatures", async () => {
         const { account, entryPoint } = await loadFixture(deployAccountFixture);
         const userOpHash = ethers.id("userOp");
-        const badSig = await buyer.signMessage(ethers.getBytes(userOpHash));
-        const userOp = {
-            sender: await account.getAddress(),
-            nonce: 0,
-            initCode: "0x",
-            callData: "0x",
-            callGasLimit: 0,
-            verificationGasLimit: 0,
-            preVerificationGas: 0,
-            maxFeePerGas: 0,
-            maxPriorityFeePerGas: 0,
-            paymasterAndData: "0x",
-            signature: badSig,
-        };
+        const badSig = await other.signMessage(ethers.getBytes(userOpHash));
+        const userOp = await packedUserOp(await account.getAddress(), 0, badSig);
 
         await expect(
             entryPoint.callValidateUserOp(
@@ -165,11 +159,11 @@ describe("OptimisticSOXAccount", () => {
                 0,
                 { value: 0 }
             )
-        ).to.be.revertedWith("Invalid vendor signature");
+        ).to.be.revertedWith("Invalid signature");
     });
 
     it("executes vendor-only flows through the account", async () => {
-        const { account, agreedPrice, completionTip } = await loadFixture(
+        const { account, entryPoint, agreedPrice, completionTip } = await loadFixture(
             deployAccountFixture
         );
 
@@ -177,8 +171,20 @@ describe("OptimisticSOXAccount", () => {
             .connect(buyer)
             .sendPayment({ value: agreedPrice + completionTip });
         const data = account.interface.encodeFunctionData("sendKey", [
-            ethers.toUtf8Bytes("secret"),
+            "0x" + "11".repeat(16),
         ]);
+
+        const userOpHash = ethers.id("sendKey");
+        const signature = await vendor.signMessage(ethers.getBytes(userOpHash));
+        const userOp = await packedUserOp(await account.getAddress(), 0, signature);
+
+        await entryPoint.callValidateUserOp(
+            await account.getAddress(),
+            userOp,
+            userOpHash,
+            0,
+            { value: 0 }
+        );
 
         await account.connect(vendor).execute(await account.getAddress(), 0, data);
 

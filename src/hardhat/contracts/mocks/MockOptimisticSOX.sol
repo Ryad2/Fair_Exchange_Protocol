@@ -27,6 +27,10 @@ contract MockOptimisticSOX {
     uint256 public agreedPrice;
     uint8 public currState = 3; // default WaitSV
     IDisputeDeployer public disputeDeployer;
+    bool public hardcodedSha256Circuit;
+    bytes32 public hardcodedDescriptionHash;
+    uint64 public hardcodedPlaintextLength;
+    bytes16 public hardcodedCiphertextIv;
 
     constructor(
         address _buyer,
@@ -71,5 +75,16 @@ contract MockOptimisticSOX {
     function endDispute() external {}
     function setState(uint8 s) external {
         currState = s;
+    }
+
+    function setHardcodedSha256Circuit(
+        bytes32 descriptionHash,
+        uint64 plaintextLength,
+        bytes16 ciphertextIv
+    ) external {
+        hardcodedSha256Circuit = true;
+        hardcodedDescriptionHash = descriptionHash;
+        hardcodedPlaintextLength = plaintextLength;
+        hardcodedCiphertextIv = ciphertextIv;
     }
 }

@@ -161,9 +161,7 @@ describe("Proof Verification Tests (V2)", function () {
         // Setup optimistic phase
         await optimisticAccount.connect(buyer).sendPayment({ value: agreedPrice + completionTip });
         await optimisticAccount.connect(vendor).sendKey(key);
-        await optimisticAccount.connect(buyerDisputeSponsor).sendBuyerDisputeSponsorFee({
-            value: DISPUTE_FEES + disputeTip
-        });
+        await sendAuthorizedBuyerDisputeSponsorFee(optimisticAccount);
         await optimisticAccount.connect(vendorDisputeSponsor).sendVendorDisputeSponsorFee({
             value: DISPUTE_FEES + disputeTip + agreedPrice
         });
@@ -174,6 +172,19 @@ describe("Proof Verification Tests (V2)", function () {
         console.log("✅ Contracts deployed and optimistic phase completed\n");
     });
     
+    async function sendAuthorizedBuyerDisputeSponsorFee(account: any) {
+        const authHash = await account.buyerUnhappyAuthorizationHash(
+            await buyerDisputeSponsor.getAddress()
+        );
+        const authorization = await buyer.signMessage(ethers.getBytes(authHash));
+
+        await account
+            .connect(buyerDisputeSponsor)
+            .sendBuyerDisputeSponsorFeeWithAuthorization(authorization, {
+                value: DISPUTE_FEES + disputeTip,
+            });
+    }
+
     // Helper function to deploy a fresh dispute contract for each scenario
     async function deployFreshDispute(): Promise<{ optimisticAccount: any; disputeAccount: any }> {
         const AccumulatorVerifierFactory = await ethers.getContractFactory("AccumulatorVerifier");
@@ -223,9 +234,7 @@ describe("Proof Verification Tests (V2)", function () {
         await freshOptimisticAccount.connect(buyer).sendPayment({ value: agreedPrice + completionTip });
         await freshOptimisticAccount.connect(vendor).sendKey(key);
         // Buyer does NOT call completeTransaction() - this triggers dispute
-        await freshOptimisticAccount.connect(buyerDisputeSponsor).sendBuyerDisputeSponsorFee({
-            value: DISPUTE_FEES + disputeTip
-        });
+        await sendAuthorizedBuyerDisputeSponsorFee(freshOptimisticAccount);
         await freshOptimisticAccount.connect(vendorDisputeSponsor).sendVendorDisputeSponsorFee({
             value: DISPUTE_FEES + disputeTip + agreedPrice
         });
