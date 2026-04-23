@@ -43,10 +43,20 @@ type GasBreakdown = {
 type DisputeGasBreakdown = {
     label: string;
     configure: bigint;
+    sb: bigint;
     triggerDispute: bigint;
     submitCommitment: bigint;
+    totalMeasured: bigint;
     proof1Levels: number;
     proof1Items: number;
+};
+
+type RealDisputeMeasurementOptions = {
+    hardcoded: boolean;
+    fileLength: number;
+    sbSelf?: boolean;
+    svSelf?: boolean;
+    label?: string;
 };
 
 type LargeCircuitGasBreakdown = {
@@ -121,8 +131,10 @@ function serializeDisputeGas(row: DisputeGasBreakdown) {
     return {
         label: row.label,
         configure: row.configure.toString(),
+        sb: row.sb.toString(),
         triggerDispute: row.triggerDispute.toString(),
         submitCommitment: row.submitCommitment.toString(),
+        totalMeasured: row.totalMeasured.toString(),
         proof1Levels: row.proof1Levels.toString(),
         proof1Items: row.proof1Items.toString(),
     };
@@ -533,10 +545,10 @@ describe("Phase 3 exhaustive matrix and gas measurements", () => {
     });
 
     async function deployRealDisputeForHardcodedMeasurement(
-        hardcoded: boolean,
-        fileLength: number
+        options: RealDisputeMeasurementOptions
     ) {
         await initWasmOnce();
+        const { hardcoded, fileLength, sbSelf = false, svSelf = false } = options;
 
         const [sponsor, buyer, vendor, buyerDisputeSponsor, vendorDisputeSponsor] =
             await ethers.getSigners();
@@ -618,22 +630,52 @@ describe("Phase 3 exhaustive matrix and gas measurements", () => {
         await account.connect(buyer).sendPayment({ value: AGREED_PRICE + COMPLETION_TIP });
         await account.connect(vendor).sendKey(hexlifyBytes(key));
 
-        const authorization = await buyerAuthorization(
-            account,
-            buyer,
-            await buyerDisputeSponsor.getAddress()
-        );
-        await account
-            .connect(buyerDisputeSponsor)
-            .sendBuyerDisputeSponsorFeeWithAuthorization(authorization, {
-                value: DISPUTE_FEES + DISPUTE_TIP,
-            });
+        let sbGas: bigint;
+        if (sbSelf) {
+            sbGas = await gasOf(
+                account.connect(buyer).sendBuyerSelfDisputeSponsorFee({
+                    value: DISPUTE_FEES + DISPUTE_TIP,
+                })
+            );
+        } else {
+            const authorization = await buyerAuthorization(
+                account,
+                buyer,
+                await buyerDisputeSponsor.getAddress()
+            );
+            sbGas = await gasOf(
+                account
+                    .connect(buyerDisputeSponsor)
+                    .sendBuyerDisputeSponsorFeeWithAuthorization(authorization, {
+                        value: DISPUTE_FEES + DISPUTE_TIP,
+                    })
+            );
+        }
 
         const triggerDisputeGas = await gasOf(
-            account.connect(vendorDisputeSponsor).sendVendorDisputeSponsorFee({
-                value: DISPUTE_FEES + DISPUTE_TIP + AGREED_PRICE,
-            })
+            svSelf
+                ? account.connect(vendor).sendVendorSelfDisputeSponsorFee({
+                    value: DISPUTE_FEES + DISPUTE_TIP + AGREED_PRICE,
+                })
+                : account.connect(vendorDisputeSponsor).sendVendorDisputeSponsorFee({
+                    value: DISPUTE_FEES + DISPUTE_TIP + AGREED_PRICE,
+                })
         );
+
+        if (sbSelf) {
+            expect(await account.buyerDisputeSponsor()).to.equal(await buyer.getAddress());
+        } else {
+            expect(await account.buyerDisputeSponsor()).to.equal(
+                await buyerDisputeSponsor.getAddress()
+            );
+        }
+        if (svSelf) {
+            expect(await account.vendorDisputeSponsor()).to.equal(await vendor.getAddress());
+        } else {
+            expect(await account.vendorDisputeSponsor()).to.equal(
+                await vendorDisputeSponsor.getAddress()
+            );
+        }
 
         const disputeAddress = await account.disputeContract();
         const dispute = await ethers.getContractAt("DisputeSOXAccount", disputeAddress);
@@ -672,12 +714,16 @@ describe("Phase 3 exhaustive matrix and gas measurements", () => {
         );
 
         return {
-            label: hardcoded
-                ? `dispute hardcoded SHA256 (${fileLength} bytes)`
-                : `dispute normal hCircuit proof (${fileLength} bytes)`,
+            label:
+                options.label ??
+                `${hardcoded ? "dispute hardcoded SHA256" : "dispute normal hCircuit proof"}${
+                    sbSelf || svSelf ? " self-sponsors" : ""
+                } (${fileLength} bytes)`,
             configure: configureGas,
+            sb: sbGas,
             triggerDispute: triggerDisputeGas,
             submitCommitment: submitCommitmentGas,
+            totalMeasured: configureGas + sbGas + triggerDisputeGas + submitCommitmentGas,
             proof1Levels: proof1.length,
             proof1Items: hardcoded ? 0 : countProofItems(proofs.proof1),
         };
@@ -779,8 +825,14 @@ describe("Phase 3 exhaustive matrix and gas measurements", () => {
     it("measures normal dispute proof vs hardcoded SHA256 dispute proof", async () => {
         const measured: DisputeGasBreakdown[] = [];
         for (const fileLength of [13, 16 * 1024]) {
-            const normal = await deployRealDisputeForHardcodedMeasurement(false, fileLength);
-            const hardcoded = await deployRealDisputeForHardcodedMeasurement(true, fileLength);
+            const normal = await deployRealDisputeForHardcodedMeasurement({
+                hardcoded: false,
+                fileLength,
+            });
+            const hardcoded = await deployRealDisputeForHardcodedMeasurement({
+                hardcoded: true,
+                fileLength,
+            });
             measured.push(normal, hardcoded);
 
             expect(hardcoded.proof1Items).to.equal(0);
@@ -791,6 +843,55 @@ describe("Phase 3 exhaustive matrix and gas measurements", () => {
         const rows = measured.map(serializeDisputeGas);
         console.table(rows);
         console.log(`PHASE3_DISPUTE_GAS_JSON=${JSON.stringify(rows)}`);
+    });
+
+    it("measures retained dispute scenarios requested for the professor comparison", async () => {
+        const fileLength = 16 * 1024;
+        const scenarios: RealDisputeMeasurementOptions[] = [
+            {
+                hardcoded: false,
+                fileLength,
+                label: "dispute retained normal external sponsors (16 KB)",
+            },
+            {
+                hardcoded: false,
+                fileLength,
+                sbSelf: true,
+                svSelf: true,
+                label: "dispute retained self-sponsors SB=B/SV=V (16 KB)",
+            },
+            {
+                hardcoded: true,
+                fileLength,
+                label: "dispute retained hardcoded SHA256 external sponsors (16 KB)",
+            },
+            {
+                hardcoded: true,
+                fileLength,
+                sbSelf: true,
+                svSelf: true,
+                label: "dispute retained self-sponsors + hardcoded SHA256 (16 KB)",
+            },
+        ];
+
+        const rows: DisputeGasBreakdown[] = [];
+        for (const scenario of scenarios) {
+            rows.push(await deployRealDisputeForHardcodedMeasurement(scenario));
+        }
+
+        const serialized = rows.map(serializeDisputeGas);
+        console.table(serialized);
+        console.log(`PHASE3_DISPUTE_RETAINED_GAS_JSON=${JSON.stringify(serialized)}`);
+
+        const normal = rows[0];
+        const selfSponsored = rows[1];
+        const hardcoded = rows[2];
+        const selfSponsoredHardcoded = rows[3];
+
+        expect(selfSponsored.sb).to.be.lessThan(normal.sb);
+        expect(hardcoded.proof1Items).to.equal(0);
+        expect(selfSponsoredHardcoded.proof1Items).to.equal(0);
+        expect(hardcoded.submitCommitment).to.be.lessThan(normal.submitCommitment);
     });
 
     it("measures 900 MiB equivalent hCircuit proof before/after hardcoded SHA256", async () => {

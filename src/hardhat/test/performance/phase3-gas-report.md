@@ -4,6 +4,7 @@ Generated from:
 
 ```bash
 npx hardhat test test/Phase3ExhaustiveAndGas.test.ts test/Phase3Variants.test.ts test/OptimisticSOXAccount.ts
+npx hardhat run scripts/measurePhase3ExecutionTimes.ts
 ```
 
 Environment: Hardhat local network, Solidity 0.8.28, `viaIR=true`, optimizer enabled with `runs=1`.
@@ -12,6 +13,11 @@ Environment: Hardhat local network, Solidity 0.8.28, `viaIR=true`, optimizer ena
 
 - The 12 conceptual Phase 2 combinations of `S`, `SB`, and `SV` are executed end-to-end on `OptimisticSOXAccount`.
 - `no_S_deposit` is executed with all four `SB/SV` self-sponsor combinations.
+- The retained dispute comparison requested for the May presentation is measured:
+  - normal external dispute sponsors;
+  - self-sponsors `SB=B/SV=V`;
+  - hardcoded SHA256 circuit;
+  - self-sponsors plus hardcoded SHA256 circuit.
 - Security/error paths are covered for:
   - external `SB` without buyer authorization;
   - invalid buyer authorization;
@@ -19,6 +25,7 @@ Environment: Hardhat local network, Solidity 0.8.28, `viaIR=true`, optimizer ena
   - invalid hardcoded SHA256 metadata;
   - hardcoded SHA256 configuration after the key has been sent.
 - Hardcoded SHA256 dispute measurements use real V2 WASM proofs and a real `DisputeSOXAccount`.
+- Off-chain execution timings are measured for the current WASM V2 pipeline and for 900 MiB streaming SHA256 metadata.
 
 ## Optimistic Phase Gas
 
@@ -54,12 +61,29 @@ Baseline: `normal, SB external, SV external = 3,189,656 gas`.
 
 These measurements use real `compute_precontract_values_v2`, `evaluate_circuit_v2_wasm`, and `compute_proofs_v2` outputs.
 
-| Scenario | Configure | Trigger dispute | submitCommitment | proof1 items |
-| --- | ---: | ---: | ---: | ---: |
-| normal hCircuit proof, 13 bytes | 0 | 5,779,296 | 251,444 | 3 |
-| hardcoded SHA256, 13 bytes | 81,897 | 5,787,348 | 234,626 | 0 |
-| normal hCircuit proof, 16 KB | 0 | 5,779,296 | 463,532 | 10 |
-| hardcoded SHA256, 16 KB | 81,897 | 5,787,348 | 400,990 | 0 |
+| Scenario | Configure | SB step | Trigger dispute | submitCommitment | Total measured | proof1 items |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| normal hCircuit proof, 13 bytes | 0 | 115,577 | 5,779,296 | 251,444 | 6,146,317 | 3 |
+| hardcoded SHA256, 13 bytes | 81,885 | 115,600 | 5,787,348 | 234,614 | 6,219,447 | 0 |
+| normal hCircuit proof, 16 KB | 0 | 115,577 | 5,779,296 | 463,544 | 6,358,417 | 10 |
+| hardcoded SHA256, 16 KB | 81,885 | 115,600 | 5,787,348 | 400,990 | 6,385,823 | 0 |
+
+## Retained Dispute Cases
+
+This is the compact comparison requested for the presentation: normal, self-sponsors, hardcoded circuit, and self-sponsors plus hardcoded circuit. The file size is 16 KB and all rows use a real `DisputeSOXAccount`.
+
+| Scenario | Configure | SB step | Trigger dispute | submitCommitment | Total measured | proof1 items |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| normal, external `SB/SV` | 0 | 115,577 | 5,779,296 | 463,544 | 6,358,417 | 10 |
+| self-sponsors `SB=B/SV=V` | 0 | 106,954 | 5,781,134 | 455,753 | 6,343,841 | 10 |
+| hardcoded SHA256, external `SB/SV` | 81,897 | 115,600 | 5,787,348 | 400,990 | 6,385,835 | 0 |
+| self-sponsors `SB=B/SV=V` + hardcoded SHA256 | 81,897 | 106,954 | 5,789,186 | 393,187 | 6,371,224 | 0 |
+
+Interpretation:
+
+- Self-sponsors reduce the measured dispute path by 14,576 gas at 16 KB, mainly by making `SB=B` cheaper and slightly reducing `submitCommitment`.
+- Hardcoded SHA256 removes `pi_1` from Step 8 and saves 62,554 gas on `submitCommitment` at 16 KB, but the current implementation pays 81,897 gas for separate metadata configuration and about 8,052 gas of extra dispute deployment overhead.
+- Self-sponsors plus hardcoded SHA256 is cheaper than hardcoded with external sponsors, but for 16 KB it is still not cheaper end-to-end than normal because the current one-time hardcoded overhead dominates.
 
 ## 900 MiB Equivalent Benchmark
 
@@ -85,11 +109,35 @@ Parameters:
 
 For a 900 MiB-equivalent circuit, the hardcoded SHA256 path saves about 160k gas on the `hCircuit` membership check alone. If we also charge the one-time 81,909 gas configuration cost and the measured 8,052 gas hardcoded dispute deployment overhead, the first dispute is still about 69k to 73k gas cheaper in this isolated large-file scenario.
 
+## Off-Chain Execution Times
+
+Measured with:
+
+```bash
+npx hardhat run scripts/measurePhase3ExecutionTimes.ts
+```
+
+The current normal V2 WASM pipeline materializes the circuit and the evaluated circuit. This is useful for the existing implementation, but it is not the target data flow for a dedicated hardcoded SHA256 circuit.
+
+| Size | Blocks | Gates | Precontract V2 | Evaluate V2 | One `compute_proofs_v2` | `pi_1` items | Peak RSS |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 MiB | 16,384 | 32,773 | 138.279 ms | 94.195 ms | 159.071 ms | 16 | 170.7 MiB |
+| 16 MiB | 262,144 | 524,293 | 1,473.719 ms | 2,219.128 ms | 4,000.768 ms | 20 | 656.3 MiB |
+| 64 MiB | 1,048,576 | 2,097,157 | 5,280.358 ms | 7,449.804 ms | 102,660.501 ms | 22 | 2,109.3 MiB |
+
+For the hardcoded SHA256 direction, the expensive normal-circuit materialization is avoided. As a size-only reference, streaming SHA256 over 900 MiB took 782.309 ms, i.e. about 1,150.441 MiB/s, with constant memory.
+
+| Hardcoded metadata benchmark | Size | Time | Throughput |
+| --- | ---: | ---: | ---: |
+| streaming SHA256 | 900 MiB | 782.309 ms | 1,150.441 MiB/s |
+
+The 64 MiB timing shows the current normal proof generation path is not suitable for very large files without further optimization. The hardcoded circuit directly addresses the largest on-chain proof component, and a production hardcoded pipeline should also avoid generating and storing the full `hCircuit` off-chain.
+
 ## Hardcoded SHA256 Interpretation
 
 - `submitCommitment` is cheaper with the hardcoded circuit:
-  - 13-byte file: saves 16,818 gas.
-  - 16 KB file: saves 62,542 gas.
+  - 13-byte file: saves 16,830 gas.
+  - 16 KB file: saves 62,554 gas.
 - The current implementation also pays:
   - about 81,897 gas to configure hardcoded metadata;
   - about 8,052 extra gas when deploying the dispute contract.
