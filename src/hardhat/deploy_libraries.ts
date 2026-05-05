@@ -21,6 +21,19 @@ async function main() {
         addresses.set(lName, await lib.getAddress());
     }
 
+    const HardcodedSha256CircuitLibFactory = await ethers.getContractFactory(
+        "HardcodedSha256CircuitLib",
+        {
+            libraries: {
+                AccumulatorVerifier: await addresses.get("AccumulatorVerifier"),
+                SHA256Evaluator: await addresses.get("SHA256Evaluator"),
+            },
+        }
+    );
+    const hardcodedSha256CircuitLib = await HardcodedSha256CircuitLibFactory.deploy();
+    await hardcodedSha256CircuitLib.waitForDeployment();
+    addresses.set("HardcodedSha256CircuitLib", await hardcodedSha256CircuitLib.getAddress());
+
     // circuit evaluator depends on some of the others
     const CircuitEvaluatorFactory = await ethers.getContractFactory(
         "CircuitEvaluator",
@@ -38,16 +51,14 @@ async function main() {
     await circuitEvaluator.waitForDeployment();
     addresses.set("CircuitEvaluator", await circuitEvaluator.getAddress());
 
-    // dispute deployer depends on the others
-    // Note: DisputeDeployer deploys DisputeSOXAccount which inherits from DisputeSOX
-    // DisputeDeployer itself only needs: AccumulatorVerifier, CommitmentOpener, DisputeSOXHelpers
+    // dispute deployers depend on the proof/evaluator libraries embedded in the dispute account
     const DisputeDeployerFactory = await ethers.getContractFactory(
         "DisputeDeployer",
         {
             libraries: {
                 AccumulatorVerifier: await addresses.get("AccumulatorVerifier"),
                 CommitmentOpener: await addresses.get("CommitmentOpener"),
-                DisputeSOXHelpers: await addresses.get("DisputeSOXHelpers"),
+                SHA256Evaluator: await addresses.get("SHA256Evaluator"),
             },
         }
     );
@@ -55,36 +66,85 @@ async function main() {
     await disputeDeployer.waitForDeployment();
     addresses.set("DisputeDeployer", await disputeDeployer.getAddress());
 
-    // link libraries to contracts
-    const optimisticFac = await ethers.getContractFactory("OptimisticSOX", {
-        libraries: {
-            DisputeDeployer: addresses.get("DisputeDeployer"),
-        },
-    });
+    const DisputeDeployerNormalFactory = await ethers.getContractFactory(
+        "DisputeDeployerNormal",
+        {
+            libraries: {
+                AccumulatorVerifier: await addresses.get("AccumulatorVerifier"),
+                CommitmentOpener: await addresses.get("CommitmentOpener"),
+                SHA256Evaluator: await addresses.get("SHA256Evaluator"),
+            },
+        }
+    );
+    let disputeDeployerNormal = await DisputeDeployerNormalFactory.deploy();
+    await disputeDeployerNormal.waitForDeployment();
+    addresses.set("DisputeDeployerNormal", await disputeDeployerNormal.getAddress());
 
-    const optimisticArtifact = await hre.artifacts.readArtifact(
-        "OptimisticSOX"
+    const DisputeDeployerSelfSponsoredFactory = await ethers.getContractFactory(
+        "DisputeDeployerSelfSponsored",
+        {
+            libraries: {
+                AccumulatorVerifier: await addresses.get("AccumulatorVerifier"),
+                CommitmentOpener: await addresses.get("CommitmentOpener"),
+                SHA256Evaluator: await addresses.get("SHA256Evaluator"),
+            },
+        }
+    );
+    let disputeDeployerSelfSponsored = await DisputeDeployerSelfSponsoredFactory.deploy();
+    await disputeDeployerSelfSponsored.waitForDeployment();
+    addresses.set(
+        "DisputeDeployerSelfSponsored",
+        await disputeDeployerSelfSponsored.getAddress()
     );
 
-    const optimisticData = {
-        abi: optimisticArtifact.abi,
-        bytecode: optimisticFac.bytecode,
-    };
+    const DisputeDeployerHardcodedSHA256Factory = await ethers.getContractFactory(
+        "DisputeDeployerHardcodedSHA256",
+        {
+            libraries: {
+                AccumulatorVerifier: await addresses.get("AccumulatorVerifier"),
+                CommitmentOpener: await addresses.get("CommitmentOpener"),
+                HardcodedSha256CircuitLib: await addresses.get("HardcodedSha256CircuitLib"),
+            },
+        }
+    );
+    let disputeDeployerHardcodedSHA256 = await DisputeDeployerHardcodedSHA256Factory.deploy();
+    await disputeDeployerHardcodedSHA256.waitForDeployment();
+    addresses.set(
+        "DisputeDeployerHardcodedSHA256",
+        await disputeDeployerHardcodedSHA256.getAddress()
+    );
 
-    const disputeFac = await ethers.getContractFactory("DisputeSOX", {
-        libraries: {
-            AccumulatorVerifier: addresses.get("AccumulatorVerifier"),
-            CommitmentOpener: addresses.get("CommitmentOpener"),
-            DisputeSOXHelpers: addresses.get("DisputeSOXHelpers"),
-        },
-    });
+    let optimisticData = null;
+    let disputeData = null;
+    try {
+        const optimisticFac = await ethers.getContractFactory("OptimisticSOX", {
+            libraries: {
+                DisputeDeployer: addresses.get("DisputeDeployer"),
+            },
+        });
 
-    const disputeArtifact = await hre.artifacts.readArtifact("DisputeSOX");
+        const optimisticArtifact = await hre.artifacts.readArtifact("OptimisticSOX");
+        optimisticData = {
+            abi: optimisticArtifact.abi,
+            bytecode: optimisticFac.bytecode,
+        };
+    } catch {}
 
-    const disputeData = {
-        abi: disputeArtifact.abi,
-        bytecode: disputeFac.bytecode,
-    };
+    try {
+        const disputeFac = await ethers.getContractFactory("DisputeSOX", {
+            libraries: {
+                AccumulatorVerifier: addresses.get("AccumulatorVerifier"),
+                CommitmentOpener: addresses.get("CommitmentOpener"),
+                DisputeSOXHelpers: addresses.get("DisputeSOXHelpers"),
+            },
+        });
+
+        const disputeArtifact = await hre.artifacts.readArtifact("DisputeSOX");
+        disputeData = {
+            abi: disputeArtifact.abi,
+            bytecode: disputeFac.bytecode,
+        };
+    } catch {}
 
     // link libraries to OptimisticSOXAccount
     // IMPORTANT: On génère le bytecode linké avec des adresses de placeholder
@@ -105,20 +165,193 @@ async function main() {
         bytecode: optimisticAccountFac.bytecode, // Bytecode linké avec les adresses actuelles
     };
 
+    const optimisticAccountNormalFac = await ethers.getContractFactory("OptimisticSOXAccountNormal", {
+        libraries: {
+            DisputeDeployerNormal: addresses.get("DisputeDeployerNormal"),
+        },
+    });
+    const optimisticAccountNormalArtifact = await hre.artifacts.readArtifact(
+        "OptimisticSOXAccountNormal"
+    );
+    const optimisticAccountNormalData = {
+        abi: optimisticAccountNormalArtifact.abi,
+        bytecode: optimisticAccountNormalFac.bytecode,
+    };
+
+    const optimisticAccountPhase3NoHardcodedFac = await ethers.getContractFactory(
+        "OptimisticSOXAccountPhase3NoHardcoded",
+        {
+            libraries: {
+                DisputeDeployerNormal: addresses.get("DisputeDeployerNormal"),
+            },
+        }
+    );
+    const optimisticAccountPhase3NoHardcodedArtifact = await hre.artifacts.readArtifact(
+        "OptimisticSOXAccountPhase3NoHardcoded"
+    );
+    const optimisticAccountPhase3NoHardcodedData = {
+        abi: optimisticAccountPhase3NoHardcodedArtifact.abi,
+        bytecode: optimisticAccountPhase3NoHardcodedFac.bytecode,
+    };
+
+    const phase3DirectContractNames = [
+        "OptimisticSOXAccountNoSDeposit",
+        "OptimisticSOXAccountSponsorIsBuyer",
+        "OptimisticSOXAccountSponsorIsVendor",
+    ];
+    const phase3DirectContractData = new Map<string, { abi: any; bytecode: string }>();
+    for (const contractName of phase3DirectContractNames) {
+        const artifact = await hre.artifacts.readArtifact(contractName);
+        const factory = await ethers.getContractFactory(contractName, {
+            libraries: {
+                DisputeDeployerNormal: addresses.get("DisputeDeployerNormal"),
+                DisputeDeployerSelfSponsored: addresses.get("DisputeDeployerSelfSponsored"),
+            },
+        });
+        phase3DirectContractData.set(contractName, {
+            abi: artifact.abi,
+            bytecode: factory.bytecode,
+        });
+    }
+
+    const cloneContractNames = [
+        "OptimisticSOXCloneNormal",
+        "OptimisticSOXCloneNoSDeposit",
+        "OptimisticSOXCloneSponsorIsBuyer",
+        "OptimisticSOXCloneSponsorIsVendor",
+    ];
+    const cloneContractData = new Map<string, { abi: any; bytecode: string }>();
+    for (const contractName of cloneContractNames) {
+        const artifact = await hre.artifacts.readArtifact(contractName);
+        const factory = await ethers.getContractFactory(contractName, {
+            libraries: {
+                DisputeDeployerNormal: addresses.get("DisputeDeployerNormal"),
+                DisputeDeployerSelfSponsored: addresses.get("DisputeDeployerSelfSponsored"),
+            },
+        });
+        cloneContractData.set(contractName, {
+            abi: artifact.abi,
+            bytecode: factory.bytecode,
+        });
+    }
+
+    const soxFactoryArtifact = await hre.artifacts.readArtifact("SOXFactory");
+    const soxFactoryFac = await ethers.getContractFactory("SOXFactory");
+    const soxFactoryData = {
+        abi: soxFactoryArtifact.abi,
+        bytecode: soxFactoryFac.bytecode,
+    };
+
+    const optimisticAccountHardcodedSHA256Fac = await ethers.getContractFactory(
+        "OptimisticSOXAccountHardcodedSHA256",
+        {
+            libraries: {
+                DisputeDeployerHardcodedSHA256: addresses.get("DisputeDeployerHardcodedSHA256"),
+                HardcodedSha256CircuitLib: addresses.get("HardcodedSha256CircuitLib"),
+            },
+        }
+    );
+    const optimisticAccountHardcodedSHA256Artifact = await hre.artifacts.readArtifact(
+        "OptimisticSOXAccountHardcodedSHA256"
+    );
+    const optimisticAccountHardcodedSHA256Data = {
+        abi: optimisticAccountHardcodedSHA256Artifact.abi,
+        bytecode: optimisticAccountHardcodedSHA256Fac.bytecode,
+    };
+
+    const disputeAccountNormalArtifact = await hre.artifacts.readArtifact(
+        "DisputeSOXAccountNormal"
+    );
+    const disputeAccountNormalData = {
+        abi: disputeAccountNormalArtifact.abi,
+        bytecode: disputeAccountNormalArtifact.bytecode,
+    };
+
+    const disputeAccountSelfSponsoredArtifact = await hre.artifacts.readArtifact(
+        "DisputeSOXAccountSelfSponsored"
+    );
+    const disputeAccountSelfSponsoredData = {
+        abi: disputeAccountSelfSponsoredArtifact.abi,
+        bytecode: disputeAccountSelfSponsoredArtifact.bytecode,
+    };
+
+    const disputeAccountHardcodedSHA256Artifact = await hre.artifacts.readArtifact(
+        "DisputeSOXAccountHardcodedSHA256"
+    );
+    const disputeAccountHardcodedSHA256Fac = await ethers.getContractFactory(
+        "DisputeSOXAccountHardcodedSHA256",
+        {
+            libraries: {
+                AccumulatorVerifier: addresses.get("AccumulatorVerifier"),
+                CommitmentOpener: addresses.get("CommitmentOpener"),
+                HardcodedSha256CircuitLib: addresses.get("HardcodedSha256CircuitLib"),
+                SHA256Evaluator: addresses.get("SHA256Evaluator"),
+            },
+        }
+    );
+    const disputeAccountHardcodedSHA256Data = {
+        abi: disputeAccountHardcodedSHA256Artifact.abi,
+        bytecode: disputeAccountHardcodedSHA256Fac.bytecode,
+    };
+
     const contractsDir = "../app/lib/blockchain/contracts/";
     
     // Écrire les contrats principaux
-    writeFileSync(
-        contractsDir + "OptimisticSOX.json",
-        JSON.stringify(optimisticData)
-    );
-    writeFileSync(
-        contractsDir + "DisputeSOX.json",
-        JSON.stringify(disputeData)
-    );
+    if (optimisticData) {
+        writeFileSync(
+            contractsDir + "OptimisticSOX.json",
+            JSON.stringify(optimisticData)
+        );
+    }
+    if (disputeData) {
+        writeFileSync(
+            contractsDir + "DisputeSOX.json",
+            JSON.stringify(disputeData)
+        );
+    }
     writeFileSync(
         contractsDir + "OptimisticSOXAccount.json",
         JSON.stringify(optimisticAccountData)
+    );
+    writeFileSync(
+        contractsDir + "OptimisticSOXAccountNormal.json",
+        JSON.stringify(optimisticAccountNormalData)
+    );
+    writeFileSync(
+        contractsDir + "OptimisticSOXAccountPhase3NoHardcoded.json",
+        JSON.stringify(optimisticAccountPhase3NoHardcodedData)
+    );
+    for (const [contractName, data] of phase3DirectContractData.entries()) {
+        writeFileSync(
+            contractsDir + contractName + ".json",
+            JSON.stringify(data)
+        );
+    }
+    for (const [contractName, data] of cloneContractData.entries()) {
+        writeFileSync(
+            contractsDir + contractName + ".json",
+            JSON.stringify(data)
+        );
+    }
+    writeFileSync(
+        contractsDir + "SOXFactory.json",
+        JSON.stringify(soxFactoryData)
+    );
+    writeFileSync(
+        contractsDir + "OptimisticSOXAccountHardcodedSHA256.json",
+        JSON.stringify(optimisticAccountHardcodedSHA256Data)
+    );
+    writeFileSync(
+        contractsDir + "DisputeSOXAccountNormal.json",
+        JSON.stringify(disputeAccountNormalData)
+    );
+    writeFileSync(
+        contractsDir + "DisputeSOXAccountSelfSponsored.json",
+        JSON.stringify(disputeAccountSelfSponsoredData)
+    );
+    writeFileSync(
+        contractsDir + "DisputeSOXAccountHardcodedSHA256.json",
+        JSON.stringify(disputeAccountHardcodedSHA256Data)
     );
 
     // Écrire les libraries nécessaires pour deploy-libraries.ts
@@ -130,7 +363,11 @@ async function main() {
         "CommitmentOpener",
         "CircuitEvaluator",
         "DisputeSOXHelpers",
+        "HardcodedSha256CircuitLib",
         "DisputeDeployer",
+        "DisputeDeployerNormal",
+        "DisputeDeployerSelfSponsored",
+        "DisputeDeployerHardcodedSHA256",
     ]) {
         const artifact = await hre.artifacts.readArtifact(lName);
         let factory;
@@ -148,7 +385,38 @@ async function main() {
                 libraries: {
                     AccumulatorVerifier: addresses.get("AccumulatorVerifier"),
                     CommitmentOpener: addresses.get("CommitmentOpener"),
-                    DisputeSOXHelpers: addresses.get("DisputeSOXHelpers"),
+                    SHA256Evaluator: addresses.get("SHA256Evaluator"),
+                },
+            });
+        } else if (lName === "DisputeDeployerNormal") {
+            factory = await ethers.getContractFactory("DisputeDeployerNormal", {
+                libraries: {
+                    AccumulatorVerifier: addresses.get("AccumulatorVerifier"),
+                    CommitmentOpener: addresses.get("CommitmentOpener"),
+                    SHA256Evaluator: addresses.get("SHA256Evaluator"),
+                },
+            });
+        } else if (lName === "DisputeDeployerSelfSponsored") {
+            factory = await ethers.getContractFactory("DisputeDeployerSelfSponsored", {
+                libraries: {
+                    AccumulatorVerifier: addresses.get("AccumulatorVerifier"),
+                    CommitmentOpener: addresses.get("CommitmentOpener"),
+                    SHA256Evaluator: addresses.get("SHA256Evaluator"),
+                },
+            });
+        } else if (lName === "DisputeDeployerHardcodedSHA256") {
+            factory = await ethers.getContractFactory("DisputeDeployerHardcodedSHA256", {
+                libraries: {
+                    AccumulatorVerifier: addresses.get("AccumulatorVerifier"),
+                    CommitmentOpener: addresses.get("CommitmentOpener"),
+                    HardcodedSha256CircuitLib: addresses.get("HardcodedSha256CircuitLib"),
+                },
+            });
+        } else if (lName === "HardcodedSha256CircuitLib") {
+            factory = await ethers.getContractFactory("HardcodedSha256CircuitLib", {
+                libraries: {
+                    AccumulatorVerifier: addresses.get("AccumulatorVerifier"),
+                    SHA256Evaluator: addresses.get("SHA256Evaluator"),
                 },
             });
         } else if (lName === "DisputeSOXHelpers") {
@@ -169,8 +437,8 @@ async function main() {
     }
 
     console.log("✅ Tous les fichiers JSON ont été générés!");
-    console.log("  Contrats: OptimisticSOX, DisputeSOX, OptimisticSOXAccount");
-    console.log("  Libraries: SHA256Evaluator, SimpleOperationsEvaluator, AES128CtrEvaluator, AccumulatorVerifier, CommitmentOpener, CircuitEvaluator, DisputeSOXHelpers, DisputeDeployer");
+    console.log("  Contrats: OptimisticSOX, DisputeSOX, OptimisticSOXAccount, OptimisticSOXAccountNormal, OptimisticSOXAccountPhase3NoHardcoded, OptimisticSOXAccountNoSDeposit, OptimisticSOXAccountSponsorIsBuyer, OptimisticSOXAccountSponsorIsVendor, OptimisticSOXAccountHardcodedSHA256, OptimisticSOXClone*, SOXFactory, DisputeSOXAccountNormal, DisputeSOXAccountSelfSponsored, DisputeSOXAccountHardcodedSHA256");
+    console.log("  Libraries: SHA256Evaluator, SimpleOperationsEvaluator, AES128CtrEvaluator, AccumulatorVerifier, CommitmentOpener, CircuitEvaluator, DisputeSOXHelpers, HardcodedSha256CircuitLib, DisputeDeployer, DisputeDeployerNormal, DisputeDeployerSelfSponsored, DisputeDeployerHardcodedSHA256");
 }
 
 main()

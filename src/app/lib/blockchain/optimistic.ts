@@ -1,4 +1,13 @@
-import { abi as oAccountAbi, bytecode as oAccountBytecode } from "./contracts/OptimisticSOXAccount.json";
+import { abi as oAccountAbi } from "./contracts/OptimisticSOXAccount.json";
+import { bytecode as oAccountNormalBytecode } from "./contracts/OptimisticSOXAccountNormal.json";
+import { bytecode as oAccountNoSDepositBytecode } from "./contracts/OptimisticSOXAccountNoSDeposit.json";
+import { bytecode as oAccountSponsorIsBuyerBytecode } from "./contracts/OptimisticSOXAccountSponsorIsBuyer.json";
+import { bytecode as oAccountSponsorIsVendorBytecode } from "./contracts/OptimisticSOXAccountSponsorIsVendor.json";
+import {
+    abi as oAccountHardcodedAbi,
+    bytecode as oAccountHardcodedBytecode,
+} from "./contracts/OptimisticSOXAccountHardcodedSHA256.json";
+import { abi as soxFactoryAbi } from "./contracts/SOXFactory.json";
 import { abi as dAccountAbi } from "./contracts/DisputeSOXAccount.json";
 import {
     EIP7702_DELEGATE,
@@ -45,6 +54,7 @@ export type Phase3VariantOptions = {
     noSponsorDeposit?: boolean;
     hardcodedSha256Circuit?: HardcodedSha256CircuitOptions;
     entryPointDeposit?: bigint;
+    useFactoryClones?: boolean;
 };
 
 const PHASE3_OPTIMISTIC_ABI = [
@@ -119,41 +129,11 @@ export async function deployOptimisticContract(
     // Si les libraries sont redéployées avec de nouvelles adresses, le bytecode ne fonctionnera pas
     // Pour l'instant, on suppose que les libraries sont déployées aux mêmes adresses
     const libraries = await deployLibraries(sponsorAddr);
-    const disputeDeployerAddr = libraries.get("DisputeDeployer");
-    
-    if (!disputeDeployerAddr) {
-        throw new Error("DisputeDeployer library not deployed");
-    }
 
     const privateKey = PK_SK_MAP.get(sponsorAddr);
     if (!privateKey) throw new Error("Private key not found for sponsor");
 
     const wallet = new Wallet(privateKey, PROVIDER);
-
-    // Remplacer les placeholders dans le bytecode par les vraies adresses
-    // Le bytecode peut contenir des placeholders comme __$e840f9821dab6b702f8ff665e4ecc4871b$__
-    // qui doivent être remplacés par l'adresse de DisputeDeployer (sans 0x, en minuscules)
-    let linkedBytecode = oAccountBytecode;
-    
-    // Remplacer les placeholders de format __$...$__ par l'adresse de DisputeDeployer
-    const placeholderRegex = /__\$[a-f0-9]+\$__/gi;
-    const disputeDeployerAddrHex = disputeDeployerAddr.slice(2).toLowerCase(); // Enlever 0x et mettre en minuscules
-    
-    if (placeholderRegex.test(linkedBytecode)) {
-        linkedBytecode = linkedBytecode.replace(placeholderRegex, disputeDeployerAddrHex);
-    }
-    
-    // Vérifier que le bytecode est maintenant valide (hexadécimal uniquement)
-    if (!/^0x[0-9a-fA-F]+$/.test(linkedBytecode)) {
-        throw new Error(`Bytecode invalide après remplacement des placeholders. Contient encore des caractères non-hexadécimaux.`);
-    }
-
-    // Créer le ContractFactory avec le bytecode linké
-    const factory = new ContractFactory(
-        oAccountAbi,
-        linkedBytecode,
-        wallet
-    );
 
     // OptimisticSOXAccount constructor:
     // (entryPoint, vendor, buyer, agreedPrice, completionTip, disputeTip, timeoutIncrement, commitment, numBlocks, numGates, vendorSigner)
@@ -174,52 +154,144 @@ export async function deployOptimisticContract(
         throw new Error("Phase 3 S=V requires the sponsor/deployer address to be the vendor");
     }
 
+    const usesHardcodedCircuit = Boolean(phase3Options.hardcodedSha256Circuit);
     const sponsorValue =
         preContractVariant === "no_S_deposit"
             ? 0n
             : preContractVariant === "S_equals_B"
               ? BigInt(price) + BigInt(completionTip) + 5n
               : parseEther("1");
-    const contract = await factory
-        .connect(wallet)
-        .deploy(
-            entryPoint,      // _entryPoint
-            pkVendor,        // _vendor
-            pkBuyer,         // _buyer
-            price,           // _agreedPrice
-            completionTip,   // _completionTip
-            disputeTip,      // _disputeTip
-            timeoutIncrement, // _timeoutIncrement
-            commitment,      // _commitment
-            numBlocks,       // _numBlocks
-            numGates,        // _numGates
-            pkVendor,        // _vendorSigner (utilise vendor par défaut)
-            {
-                value: sponsorValue,
-                nonce: currentNonce, // Spécifier explicitement le nonce pour éviter les conflits
-            }
-        );
-    await contract.waitForDeployment();
-    const contractAddress = await contract.getAddress();
+    const deployArgs = [
+        entryPoint,
+        pkVendor,
+        pkBuyer,
+        price,
+        completionTip,
+        disputeTip,
+        timeoutIncrement,
+        commitment,
+        numBlocks,
+        numGates,
+        pkVendor,
+    ];
 
-    if (phase3Options.hardcodedSha256Circuit) {
-        const phase3Contract = new Contract(
-            contractAddress,
-            PHASE3_OPTIMISTIC_ABI,
-            wallet
+    let contractAddress: string;
+    const soxFactoryAddr = libraries.get("SOXFactory");
+    const canUseFactoryClone =
+        phase3Options.useFactoryClones !== false &&
+        !usesHardcodedCircuit &&
+        preContractVariant !== "normal" &&
+        Boolean(soxFactoryAddr);
+
+    if (canUseFactoryClone && soxFactoryAddr) {
+        const soxFactory = new Contract(soxFactoryAddr, soxFactoryAbi, wallet);
+        const initArgs = {
+            entryPoint,
+            vendor: pkVendor,
+            buyer: pkBuyer,
+            agreedPrice: price,
+            completionTip,
+            disputeTip,
+            timeoutIncrement,
+            commitment,
+            numBlocks,
+            numGates,
+            vendorSigner: pkVendor,
+        };
+
+        if (preContractVariant === "no_S_deposit") {
+            contractAddress = await soxFactory.createNoSDeposit.staticCall(initArgs, {
+                value: sponsorValue,
+            });
+            const tx = await soxFactory.createNoSDeposit(initArgs, {
+                value: sponsorValue,
+                nonce: currentNonce,
+            });
+            await tx.wait();
+        } else if (preContractVariant === "S_equals_B") {
+            contractAddress = await soxFactory.createSponsorIsBuyer.staticCall(initArgs, {
+                value: sponsorValue,
+            });
+            const tx = await soxFactory.createSponsorIsBuyer(initArgs, {
+                value: sponsorValue,
+                nonce: currentNonce,
+            });
+            await tx.wait();
+        } else {
+            contractAddress = await soxFactory.createSponsorIsVendor.staticCall(initArgs, {
+                value: sponsorValue,
+            });
+            const tx = await soxFactory.createSponsorIsVendor(initArgs, {
+                value: sponsorValue,
+                nonce: currentNonce,
+            });
+            await tx.wait();
+        }
+    } else {
+    const disputeDeployerLibraryName = usesHardcodedCircuit
+        ? "DisputeDeployerHardcodedSHA256"
+        : "DisputeDeployerNormal";
+    const disputeDeployerAddr = libraries.get(disputeDeployerLibraryName);
+
+    if (!disputeDeployerAddr) {
+        throw new Error(`${disputeDeployerLibraryName} library not deployed`);
+    }
+
+    const selectedBytecode = usesHardcodedCircuit
+        ? oAccountHardcodedBytecode
+        : preContractVariant === "no_S_deposit"
+          ? oAccountNoSDepositBytecode
+          : preContractVariant === "S_equals_B"
+            ? oAccountSponsorIsBuyerBytecode
+            : preContractVariant === "S_equals_V"
+              ? oAccountSponsorIsVendorBytecode
+              : oAccountNormalBytecode;
+    const selectedAbi = usesHardcodedCircuit ? oAccountHardcodedAbi : oAccountAbi;
+
+    // The JSON artifacts generated by the deployment scripts are already linked.
+    // If placeholders remain here, replacing all of them with one address would
+    // be unsafe because some variants use more than one library.
+    let linkedBytecode = selectedBytecode;
+    const placeholderRegex = /__\$[a-f0-9]+\$__/gi;
+
+    if (placeholderRegex.test(linkedBytecode)) {
+        throw new Error(
+            "Bytecode contains unlinked library placeholders. Run the deployment/generation script again before deploying this variant."
         );
-        const configTx = await phase3Contract.configureHardcodedSha256Circuit(
-            phase3Options.hardcodedSha256Circuit.descriptionHash,
-            phase3Options.hardcodedSha256Circuit.plaintextLength,
-            phase3Options.hardcodedSha256Circuit.ciphertextIv
+    }
+
+    if (!/^0x[0-9a-fA-F]+$/.test(linkedBytecode)) {
+        throw new Error(
+            "Bytecode invalide après remplacement des placeholders. Contient encore des caractères non-hexadécimaux."
         );
-        await configTx.wait();
+    }
+
+    const factory = new ContractFactory(selectedAbi, linkedBytecode, wallet);
+
+    const hardcodedArgs =
+        usesHardcodedCircuit && phase3Options.hardcodedSha256Circuit
+            ? [
+                  phase3Options.hardcodedSha256Circuit.descriptionHash,
+                  phase3Options.hardcodedSha256Circuit.plaintextLength,
+                  phase3Options.hardcodedSha256Circuit.ciphertextIv,
+              ]
+            : [];
+    const contract = await factory.connect(wallet).deploy(
+        ...deployArgs,
+        ...hardcodedArgs,
+        {
+            value: sponsorValue,
+            nonce: currentNonce,
+        }
+    );
+    await contract.waitForDeployment();
+    contractAddress = await contract.getAddress();
     }
 
     // In Phase 3 variants other than normal, actors use direct transactions by default.
     const entryPointDeposit =
         phase3Options.entryPointDeposit ??
-        (preContractVariant === "normal" ? parseEther("0.01") : 0n);
+        (preContractVariant === "normal" && !usesHardcodedCircuit ? parseEther("0.01") : 0n);
     if (entryPointDeposit > 0n) {
         const entryPointContract = new Contract(
             entryPoint,

@@ -1,0 +1,412 @@
+{
+  "abi": [
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_normalImplementation",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_noSDepositImplementation",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_sponsorIsBuyerImplementation",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_sponsorIsVendorImplementation",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "constructor"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "clone",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "sponsor",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "uint8",
+          "name": "variant",
+          "type": "uint8"
+        }
+      ],
+      "name": "OptimisticCloneDeployed",
+      "type": "event"
+    },
+    {
+      "inputs": [
+        {
+          "components": [
+            {
+              "internalType": "address",
+              "name": "entryPoint",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "vendor",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "buyer",
+              "type": "address"
+            },
+            {
+              "internalType": "uint256",
+              "name": "agreedPrice",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "completionTip",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "disputeTip",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "timeoutIncrement",
+              "type": "uint256"
+            },
+            {
+              "internalType": "bytes32",
+              "name": "commitment",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "uint32",
+              "name": "numBlocks",
+              "type": "uint32"
+            },
+            {
+              "internalType": "uint32",
+              "name": "numGates",
+              "type": "uint32"
+            },
+            {
+              "internalType": "address",
+              "name": "vendorSigner",
+              "type": "address"
+            }
+          ],
+          "internalType": "struct OptimisticSOXAccountCloneBase.InitArgs",
+          "name": "_args",
+          "type": "tuple"
+        }
+      ],
+      "name": "createNoSDeposit",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "clone",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "payable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "components": [
+            {
+              "internalType": "address",
+              "name": "entryPoint",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "vendor",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "buyer",
+              "type": "address"
+            },
+            {
+              "internalType": "uint256",
+              "name": "agreedPrice",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "completionTip",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "disputeTip",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "timeoutIncrement",
+              "type": "uint256"
+            },
+            {
+              "internalType": "bytes32",
+              "name": "commitment",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "uint32",
+              "name": "numBlocks",
+              "type": "uint32"
+            },
+            {
+              "internalType": "uint32",
+              "name": "numGates",
+              "type": "uint32"
+            },
+            {
+              "internalType": "address",
+              "name": "vendorSigner",
+              "type": "address"
+            }
+          ],
+          "internalType": "struct OptimisticSOXAccountCloneBase.InitArgs",
+          "name": "_args",
+          "type": "tuple"
+        }
+      ],
+      "name": "createNormal",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "clone",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "payable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "components": [
+            {
+              "internalType": "address",
+              "name": "entryPoint",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "vendor",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "buyer",
+              "type": "address"
+            },
+            {
+              "internalType": "uint256",
+              "name": "agreedPrice",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "completionTip",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "disputeTip",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "timeoutIncrement",
+              "type": "uint256"
+            },
+            {
+              "internalType": "bytes32",
+              "name": "commitment",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "uint32",
+              "name": "numBlocks",
+              "type": "uint32"
+            },
+            {
+              "internalType": "uint32",
+              "name": "numGates",
+              "type": "uint32"
+            },
+            {
+              "internalType": "address",
+              "name": "vendorSigner",
+              "type": "address"
+            }
+          ],
+          "internalType": "struct OptimisticSOXAccountCloneBase.InitArgs",
+          "name": "_args",
+          "type": "tuple"
+        }
+      ],
+      "name": "createSponsorIsBuyer",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "clone",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "payable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "components": [
+            {
+              "internalType": "address",
+              "name": "entryPoint",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "vendor",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "buyer",
+              "type": "address"
+            },
+            {
+              "internalType": "uint256",
+              "name": "agreedPrice",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "completionTip",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "disputeTip",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "timeoutIncrement",
+              "type": "uint256"
+            },
+            {
+              "internalType": "bytes32",
+              "name": "commitment",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "uint32",
+              "name": "numBlocks",
+              "type": "uint32"
+            },
+            {
+              "internalType": "uint32",
+              "name": "numGates",
+              "type": "uint32"
+            },
+            {
+              "internalType": "address",
+              "name": "vendorSigner",
+              "type": "address"
+            }
+          ],
+          "internalType": "struct OptimisticSOXAccountCloneBase.InitArgs",
+          "name": "_args",
+          "type": "tuple"
+        }
+      ],
+      "name": "createSponsorIsVendor",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "clone",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "payable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "noSDepositImplementation",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "normalImplementation",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "sponsorIsBuyerImplementation",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "sponsorIsVendorImplementation",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    }
+  ],
+  "bytecode": "0x6101003461021857601f610b5338819003918201601f19168301916001600160401b0383118484101761021d578084926080946040528339810103126102185761004881610233565b9061005560208201610233565b61006d606061006660408501610233565b9301610233565b926001600160a01b038116156101d3576001600160a01b0382161561018e576001600160a01b03831615610149576001600160a01b038416156101045760805260a05260c05260e05260405161090b90816102488239608051818181610199015261047b015260a05181818160aa0152610345015260c05181818161012201526104fd015260e0518181816102db01526106780152f35b60405162461bcd60e51b815260206004820152601a60248201527f4d697373696e6720533d5620696d706c656d656e746174696f6e0000000000006044820152606490fd5b60405162461bcd60e51b815260206004820152601a60248201527f4d697373696e6720533d4220696d706c656d656e746174696f6e0000000000006044820152606490fd5b60405162461bcd60e51b815260206004820152601b60248201527f4d697373696e67206e6f5f5320696d706c656d656e746174696f6e00000000006044820152606490fd5b60405162461bcd60e51b815260206004820152601d60248201527f4d697373696e67206e6f726d616c20696d706c656d656e746174696f6e0000006044820152606490fd5b600080fd5b634e487b7160e01b600052604160045260246000fd5b51906001600160a01b03821682036102185756fe6080604052600436101561001257600080fd5b60003560e01c80630be9d3e6146100975780630ce8f79a146100925780633050a73f1461008d578063667fa42214610088578063a8257f7114610083578063c00c05791461007e578063c3c36591146100795763eb8d897d1461007457600080fd5b610625565b6104aa565b610465565b61030a565b6102c5565b610163565b61010c565b346100dc5760003660031901126100dc577f00000000000000000000000000000000000000000000000000000000000000006001600160a01b03166080908152602090f35b600080fd5b60009103126100dc57565b6001600160a01b03169052565b6001600160a01b03909116815260200190565b346100dc5760003660031901126100dc576040517f00000000000000000000000000000000000000000000000000000000000000006001600160a01b03168152602090f35b6101609060031901126100dc57600490565b61016c36610151565b604051693d602d80600a3d3981f360b01b6020820190815269363d3d373d3d3d363d7360b01b602a8301527f000000000000000000000000000000000000000000000000000000000000000060601b6001600160601b03191660348301526e5af43d82803e903d91602b57fd5bf360881b604883015260378252906101f2605782610798565b51906000f06001600160a01b0381169081156102865750803b156100dc576000610232926040518094819263d2a4112b60e01b83523390600484016107ef565b038134855af191821561028157602092610266575b50600033826000805160206108df8339815191528380a4604051908152f35b80610275600061027b93610798565b806100e1565b38610247565b6108d2565b60405162461bcd60e51b815260206004820152601760248201527610db1bdb994819195c1b1bde5b595b9d0819985a5b1959604a1b6044820152606490fd5b346100dc5760003660031901126100dc576040517f00000000000000000000000000000000000000000000000000000000000000006001600160a01b03168152602090f35b61031336610151565b3461042857604051693d602d80600a3d3981f360b01b6020820190815269363d3d373d3d3d363d7360b01b602a8301527f000000000000000000000000000000000000000000000000000000000000000060601b6001600160601b03191660348301526e5af43d82803e903d91602b57fd5bf360881b6048830152603782529061039e605782610798565b51906000f06001600160a01b0381169081156102865750803b156100dc5760006103de926040518094819263d2a4112b60e01b83523390600484016107ef565b038134855af191821561028157602092610413575b50600133826000805160206108df833981519152600080a4604051908152f35b80610275600061042293610798565b386103f3565b60405162461bcd60e51b8152602060048201526015602482015274139bc814c819195c1bdcda5d08195e1c1958dd1959605a1b6044820152606490fd5b346100dc5760003660031901126100dc576040517f00000000000000000000000000000000000000000000000000000000000000006001600160a01b03168152602090f35b6104b336610151565b60408101356104c181610787565b6001600160a01b031633036105e857604051693d602d80600a3d3981f360b01b6020820190815269363d3d373d3d3d363d7360b01b602a8301527f000000000000000000000000000000000000000000000000000000000000000060601b6001600160601b03191660348301526e5af43d82803e903d91602b57fd5bf360881b60488301526037825290610556605782610798565b51906000f06001600160a01b038116801561028657803b156100dc576000610594936040518095819263d2a4112b60e01b83523390600484016107ef565b038134855af1908115610281576105cf936002926105d3575b5033906000805160206108df833981519152600080a4604051918291826100f9565b0390f35b8061027560006105e293610798565b386105ad565b60405162461bcd60e51b815260206004820152601560248201527429b837b739b7b91036bab9ba10313290313abcb2b960591b6044820152606490fd5b61062e36610151565b602081013561063c81610787565b6001600160a01b0316330361074957604051693d602d80600a3d3981f360b01b6020820190815269363d3d373d3d3d363d7360b01b602a8301527f000000000000000000000000000000000000000000000000000000000000000060601b6001600160601b03191660348301526e5af43d82803e903d91602b57fd5bf360881b604883015260378252906106d1605782610798565b51906000f06001600160a01b038116801561028657803b156100dc57600061070f936040518095819263d2a4112b60e01b83523390600484016107ef565b038134855af1908115610281576105cf936003926105d3575033906000805160206108df833981519152600080a4604051918291826100f9565b60405162461bcd60e51b815260206004820152601660248201527529b837b739b7b91036bab9ba103132903b32b73237b960511b6044820152606490fd5b6001600160a01b038116036100dc57565b601f909101601f19168101906001600160401b038211908210176107bb57604052565b634e487b7160e01b600052604160045260246000fd5b35906107dc82610787565b565b359063ffffffff821682036100dc57565b916101606107dc9294936108cb6108c061014061018084019861081a85610815836107d1565b6100ec565b610833610829602083016107d1565b60208701906100ec565b61084c610842604083016107d1565b60408701906100ec565b606081013560608601526080810135608086015260a081013560a086015260c081013560c086015260e081013560e086015261089c61088e61010083016107de565b63ffffffff16610100870152565b6108ba6108ac61012083016107de565b63ffffffff16610120870152565b016107d1565b6101408301906100ec565b01906100ec565b6040513d6000823e3d90fdfe832ed58193eec85c1c09464aa369d8cfbe9cdea533989e1f6252ebcbe5f2d412a164736f6c634300081c000a"
+}

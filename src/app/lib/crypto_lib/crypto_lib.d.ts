@@ -270,6 +270,16 @@ export function hpre_v2(evaluated_circuit_bytes: Uint8Array, num_blocks: number,
  */
 export function compute_proofs_left(circuit_bytes: Uint8Array, evaluated_circuit_bytes: Uint8Array, ct: Uint8Array, challenge: number): FinalStepComponents;
 /**
+ * Creates a commitment for the given data by appending random bytes and hashing
+ *
+ * # Arguments
+ * * `data` - Data to commit to
+ *
+ * # Returns
+ * A `Commitment` containing the commitment hash and opening value
+ */
+export function commit(data: Uint8Array): Commitment;
+/**
  * Compiles a basic circuit for processing ciphertext. Once the key is bound, the circuit computes
  * the SHA256 hash of the initial plaintext and compares it to the provided description.
  *
@@ -281,64 +291,6 @@ export function compute_proofs_left(circuit_bytes: Uint8Array, evaluated_circuit
  * A `CompiledCircuit` configured for the given parameters
  */
 export function compile_basic_circuit(ct_size: number, description: Uint8Array): CompiledCircuit;
-/**
- * Creates a commitment for the given data by appending random bytes and hashing
- *
- * # Arguments
- * * `data` - Data to commit to
- *
- * # Returns
- * A `Commitment` containing the commitment hash and opening value
- */
-export function commit(data: Uint8Array): Commitment;
-export function bytes_to_hex(vec: Uint8Array): string;
-export function hex_to_bytes(hex_str: string): Uint8Array;
-/**
- * JavaScript-compatible wrapper for sha256_compress
- *
- * # Arguments
- * * `data` - Vector of Uint8Arrays containing the input data
- *
- * # Returns
- * A byte vector containing the compressed result
- */
-export function sha256_compress_js(data: Uint8Array[]): Uint8Array;
-/**
- * JavaScript-compatible wrapper for sha256_compress_final
- *
- * # Arguments
- * * `data` - Vector of Uint8Arrays containing the input data
- *
- * # Returns
- * A byte vector containing the final hash
- */
-export function sha256_compress_final_js(data: Uint8Array[]): Uint8Array;
-/**
- * JavaScript wrapper for encrypt_block
- *
- * # Arguments
- * * `data` - Vector of Uint8Arrays containing:
- *   - key (16 bytes)
- *   - blocks to encrypt (<=112 bytes)
- *   - IV/counter starting value (16 bytes)
- *
- * # Returns
- * Encrypted bytes
- */
-export function encrypt_block_js(data: Uint8Array[]): Uint8Array;
-/**
- * JavaScript wrapper for decrypt_block
- *
- * # Arguments
- * * `data` - Vector of Uint8Arrays containing:
- *   - key (16 bytes)
- *   - blocks to decrypt (<=112 bytes)
- *   - IV/counter starting value (16 bytes)
- *
- * # Returns
- * Decrypted bytes
- */
-export function decrypt_block_js(data: Uint8Array[]): Uint8Array;
 /**
  * JavaScript wrapper of the prove_ext function
  *
@@ -370,6 +322,54 @@ export function acc_js(values: Uint8Array[]): Uint8Array;
  * Array of arrays of Uint8Arrays containing the proof layers
  */
 export function prove_js(values: Uint8Array[], indices: Array<any>): Array<any>;
+/**
+ * JavaScript wrapper for encrypt_block
+ *
+ * # Arguments
+ * * `data` - Vector of Uint8Arrays containing:
+ *   - key (16 bytes)
+ *   - blocks to encrypt (<=112 bytes)
+ *   - IV/counter starting value (16 bytes)
+ *
+ * # Returns
+ * Encrypted bytes
+ */
+export function encrypt_block_js(data: Uint8Array[]): Uint8Array;
+/**
+ * JavaScript wrapper for decrypt_block
+ *
+ * # Arguments
+ * * `data` - Vector of Uint8Arrays containing:
+ *   - key (16 bytes)
+ *   - blocks to decrypt (<=112 bytes)
+ *   - IV/counter starting value (16 bytes)
+ *
+ * # Returns
+ * Decrypted bytes
+ */
+export function decrypt_block_js(data: Uint8Array[]): Uint8Array;
+export function bytes_to_hex(vec: Uint8Array): string;
+export function hex_to_bytes(hex_str: string): Uint8Array;
+/**
+ * JavaScript-compatible wrapper for sha256_compress
+ *
+ * # Arguments
+ * * `data` - Vector of Uint8Arrays containing the input data
+ *
+ * # Returns
+ * A byte vector containing the compressed result
+ */
+export function sha256_compress_js(data: Uint8Array[]): Uint8Array;
+/**
+ * JavaScript-compatible wrapper for sha256_compress_final
+ *
+ * # Arguments
+ * * `data` - Vector of Uint8Arrays containing the input data
+ *
+ * # Returns
+ * A byte vector containing the final hash
+ */
+export function sha256_compress_final_js(data: Uint8Array[]): Uint8Array;
 /**
  * Result of checking a dispute argument.
  */
@@ -828,6 +828,12 @@ export interface InitOutput {
   readonly __wbg_get_precontract_description: (a: number) => [number, number];
   readonly __wbg_get_precontract_h_circuit: (a: number) => [number, number];
   readonly __wbg_get_precontract_h_ct: (a: number) => [number, number];
+  readonly __wbg_commitment_free: (a: number, b: number) => void;
+  readonly __wbg_get_commitment_c: (a: number) => [number, number];
+  readonly __wbg_get_commitment_o: (a: number) => [number, number];
+  readonly __wbg_set_commitment_c: (a: number, b: number, c: number) => void;
+  readonly __wbg_set_commitment_o: (a: number, b: number, c: number) => void;
+  readonly commit: (a: number, b: number) => number;
   readonly __wbg_compiledcircuit_free: (a: number, b: number) => void;
   readonly __wbg_compiledcircuitwithconstants_free: (a: number, b: number) => void;
   readonly __wbg_gate_free: (a: number, b: number) => void;
@@ -852,21 +858,15 @@ export interface InitOutput {
   readonly __wbg_set_compiledcircuitwithconstants_version: (a: number, b: number) => void;
   readonly __wbg_get_compiledcircuitwithconstants_block_size: (a: number) => number;
   readonly __wbg_get_compiledcircuitwithconstants_version: (a: number) => number;
-  readonly __wbg_commitment_free: (a: number, b: number) => void;
-  readonly __wbg_get_commitment_c: (a: number) => [number, number];
-  readonly __wbg_get_commitment_o: (a: number) => [number, number];
-  readonly __wbg_set_commitment_c: (a: number, b: number, c: number) => void;
-  readonly __wbg_set_commitment_o: (a: number, b: number, c: number) => void;
-  readonly commit: (a: number, b: number) => number;
+  readonly acc_js: (a: number, b: number) => [number, number];
+  readonly decrypt_block_js: (a: number, b: number) => [number, number];
+  readonly prove_ext_js: (a: number, b: number) => any;
+  readonly prove_js: (a: number, b: number, c: any) => any;
+  readonly encrypt_block_js: (a: number, b: number) => [number, number];
   readonly bytes_to_hex: (a: number, b: number) => [number, number];
   readonly hex_to_bytes: (a: number, b: number) => [number, number];
   readonly sha256_compress_final_js: (a: number, b: number) => [number, number];
   readonly sha256_compress_js: (a: number, b: number) => [number, number];
-  readonly decrypt_block_js: (a: number, b: number) => [number, number];
-  readonly encrypt_block_js: (a: number, b: number) => [number, number];
-  readonly acc_js: (a: number, b: number) => [number, number];
-  readonly prove_ext_js: (a: number, b: number) => any;
-  readonly prove_js: (a: number, b: number, c: any) => any;
   readonly __wbindgen_exn_store: (a: number) => void;
   readonly __externref_table_alloc: () => number;
   readonly __wbindgen_export_2: WebAssembly.Table;

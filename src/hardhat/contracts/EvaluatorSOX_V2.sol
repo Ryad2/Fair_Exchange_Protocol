@@ -65,6 +65,22 @@ library EvaluatorSOX_V2 {
         return _decodeGateWithArity(gateBytes, opcode, expectedArity, paramsLen);
     }
 
+    function decodeGateMemory(bytes memory gateBytes, uint256 expectedArity)
+        internal
+        pure
+        returns (uint8 opcode, int64[] memory sons, bytes memory params)
+    {
+        require(gateBytes.length == 64, "Gate must be exactly 64 bytes");
+
+        opcode = uint8(gateBytes[0]);
+        uint8 paramsLen = _paramsLength(opcode);
+        uint256 paramsStart = 1 + expectedArity * 6;
+        require(paramsStart + paramsLen <= 64, "Params out of bounds");
+        require(_paddingIsZeroMemory(gateBytes, paramsStart + paramsLen), "Non-zero padding");
+
+        return _decodeGateWithArityMemory(gateBytes, opcode, expectedArity, paramsLen);
+    }
+
     function _decodeGateWithArity(
         bytes calldata gateBytes,
         uint8 opcode,
@@ -76,6 +92,30 @@ library EvaluatorSOX_V2 {
             bytes6 sonBytes;
             assembly {
                 sonBytes := calldataload(add(gateBytes.offset, add(1, mul(i, 6))))
+            }
+            sons[i] = decodeSon(sonBytes);
+        }
+
+        uint256 paramsStart = 1 + arity * 6;
+        params = new bytes(paramsLen);
+        for (uint256 i = 0; i < paramsLen; i++) {
+            params[i] = gateBytes[paramsStart + i];
+        }
+
+        return (opcode, sons, params);
+    }
+
+    function _decodeGateWithArityMemory(
+        bytes memory gateBytes,
+        uint8 opcode,
+        uint256 arity,
+        uint8 paramsLen
+    ) private pure returns (uint8, int64[] memory sons, bytes memory params) {
+        sons = new int64[](arity);
+        for (uint256 i = 0; i < arity; i++) {
+            bytes6 sonBytes;
+            assembly {
+                sonBytes := mload(add(add(gateBytes, 32), add(1, mul(i, 6))))
             }
             sons[i] = decodeSon(sonBytes);
         }
@@ -140,6 +180,19 @@ library EvaluatorSOX_V2 {
     }
 
     function _paddingIsZero(bytes calldata gateBytes, uint256 start)
+        private
+        pure
+        returns (bool)
+    {
+        for (uint256 i = start; i < 64; i++) {
+            if (gateBytes[i] != 0) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    function _paddingIsZeroMemory(bytes memory gateBytes, uint256 start)
         private
         pure
         returns (bool)
@@ -241,6 +294,30 @@ library EvaluatorSOX_V2 {
         bytes16 aesKey
     ) internal pure returns (bytes memory) {
         (uint8 opcode, , bytes memory params) = decodeGate(
+            gateBytes,
+            sonValues.length
+        );
+
+        if (opcode == 0x01) {
+            return evalAESCTR(sonValues, params, aesKey);
+        } else if (opcode == 0x02) {
+            return evalSHA2(sonValues);
+        } else if (opcode == 0x03) {
+            return evalCONST(sonValues, params);
+        } else if (opcode == 0x04) {
+            return evalXOR(sonValues);
+        } else if (opcode == 0x05) {
+            return evalCOMP(sonValues);
+        }
+        revert("Invalid opcode");
+    }
+
+    function evaluateGateFromSonsMemory(
+        bytes memory gateBytes,
+        bytes[] memory sonValues,
+        bytes16 aesKey
+    ) internal pure returns (bytes memory) {
+        (uint8 opcode, , bytes memory params) = decodeGateMemory(
             gateBytes,
             sonValues.length
         );

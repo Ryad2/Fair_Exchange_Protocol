@@ -190,4 +190,71 @@ describe("OptimisticSOXAccount", () => {
 
         expect(await account.currState()).to.equal(2); // WaitSB
     });
+
+    it("executes vendor-only flows through executeBatch", async () => {
+        const { account, entryPoint, agreedPrice, completionTip } = await loadFixture(
+            deployAccountFixture
+        );
+
+        await account
+            .connect(buyer)
+            .sendPayment({ value: agreedPrice + completionTip });
+
+        const sendKeyData = account.interface.encodeFunctionData("sendKey", [
+            "0x" + "22".repeat(16),
+        ]);
+        const userOpHash = ethers.id("batch-sendKey");
+        const signature = await vendor.signMessage(ethers.getBytes(userOpHash));
+        const userOp = await packedUserOp(await account.getAddress(), 0, signature);
+
+        await entryPoint.callValidateUserOp(
+            await account.getAddress(),
+            userOp,
+            userOpHash,
+            0,
+            { value: 0 }
+        );
+
+        await account.connect(vendor).executeBatch(
+            [await account.getAddress()],
+            [0],
+            [sendKeyData]
+        );
+
+        expect(await account.currState()).to.equal(2); // WaitSB
+    });
+
+    it("clears the validated UserOp context after executeBatch", async () => {
+        const { account, entryPoint, agreedPrice, completionTip } = await loadFixture(
+            deployAccountFixture
+        );
+
+        await account
+            .connect(buyer)
+            .sendPayment({ value: agreedPrice + completionTip });
+
+        const userOpHash = ethers.id("empty-batch");
+        const signature = await vendor.signMessage(ethers.getBytes(userOpHash));
+        const userOp = await packedUserOp(await account.getAddress(), 0, signature);
+
+        await entryPoint.callValidateUserOp(
+            await account.getAddress(),
+            userOp,
+            userOpHash,
+            0,
+            { value: 0 }
+        );
+
+        await account.connect(vendor).executeBatch([], [], []);
+
+        const sendKeyData = account.interface.encodeFunctionData("sendKey", [
+            "0x" + "33".repeat(16),
+        ]);
+
+        await expect(
+            account.connect(vendor).execute(await account.getAddress(), 0, sendKeyData)
+        ).to.be.revertedWith("Invalid UserOp context");
+
+        expect(await account.currState()).to.equal(1); // WaitKey
+    });
 });

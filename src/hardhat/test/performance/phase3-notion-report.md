@@ -387,7 +387,43 @@ Conclusion:
 
 - pour petits/moyens fichiers, le hardcoded reduit bien `submitCommitment`, mais le cout fixe actuel annule encore le gain end-to-end;
 - pour gros circuits, le gain sur `pi_1` devient suffisant pour depasser ce cout fixe;
-- une optimisation future evidente serait d'integrer les metadata hardcoded directement dans le deploiement/precontrat au lieu d'une transaction separee.
+- ce cout fixe provenait du premier chemin hardcoded monolithique, avant specialisation.
+
+### 6.2 Chemin hardcoded specialise apres refactor
+
+Pour eviter de payer ce cout fixe dans le chemin reel deploye par l'application, j'ai ensuite specialise le hardcoded SHA256 en contrats dedies:
+
+- `OptimisticSOXAccountHardcodedSHA256`
+- `DisputeDeployerHardcodedSHA256`
+- `DisputeSOXAccountHardcodedSHA256`
+
+Dans ce nouveau chemin:
+
+- les metadata hardcoded sont passees directement au constructeur;
+- la transaction `configureHardcodedSha256Circuit(...)` disparait;
+- l'application choisit ce bytecode specialise au deploiement quand `hardcodedSha256Circuit = true`.
+
+Comparaison taille runtime:
+
+| Contrat | Monolithique | Hardcoded specialise | Gain |
+| --- | ---: | ---: | ---: |
+| compte optimiste | 11,456 bytes | 10,740 bytes | -716 bytes |
+| compte dispute | 26,439 bytes | 26,261 bytes | -178 bytes |
+
+Comparaison gas sur le chemin hardcoded deploye:
+
+| Mesure | Hardcoded monolithique | Hardcoded specialise | Gain |
+| --- | ---: | ---: | ---: |
+| deployment compte optimiste | 2,793,386 | 2,649,667 | 143,719 |
+| transaction setup hardcoded | 81,897 | 0 | 81,897 |
+| transaction finale de declenchement de dispute | 5,767,448 | 5,723,102 | 44,346 |
+| total deployment + setup/trigger | 8,921,680 | 8,651,674 | 270,006 |
+
+Interpretation:
+
+- le gain est moins spectaculaire que pour le split du chemin normal, car le hardcoded doit conserver ses helpers SHA256 dedies;
+- en revanche, le gain pratique est important: le chemin hardcoded reel ne paie plus la transaction de configuration;
+- le surcout fixe de `~81.9k gas` des tableaux precedents ne s'applique donc plus au chemin specialise actuellement deploye par l'application.
 
 ## 7. Cas dispute demandes par le professeur
 
@@ -420,12 +456,12 @@ self-sponsors + hardcoded submitCommitment vs normal submitCommitment:
 463,544 - 393,187 = 70,357 gas economises
 ```
 
-Conclusion:
+Conclusion pour le premier chemin hardcoded monolithique:
 
 - self-sponsors economise environ 14.6k gas sur ce chemin de dispute;
 - hardcoded economise fortement sur `submitCommitment`;
 - `self-sponsors + hardcoded` combine les deux effets;
-- mais a 16 KB, le cout fixe hardcoded actuel reste trop important pour que le total end-to-end soit deja meilleur que normal.
+- mais a 16 KB, le cout fixe hardcoded du chemin monolithique reste encore trop important pour que le total end-to-end soit deja meilleur que normal.
 
 ## 8. Benchmarks gros fichiers - 900 MiB et 1 GiB
 
@@ -689,3 +725,183 @@ La suite logique pour la Phase 4 serait donc:
 - reduire la taille de `DisputeSOXAccount`;
 - redesign le pipeline off-chain normal pour les gros fichiers;
 - produire des mesures plus fines par type de gate si l'objectif devient l'optimisation Step 8 bas niveau AES/SHA.
+
+## 13. Addendum suite au feedback du professeur
+
+Apres le retour du professeur, deux clarifications importantes ont ete ajoutees:
+
+- separation stricte entre `optimistic success path` et `pre-dispute path`;
+- mesure de la dispute complete jusqu'a `End`, et non plus seulement jusqu'au premier `submitCommitment`.
+
+### 13.1 Correctif implementation
+
+Un point concret a ete corrige dans `OptimisticSOXAccount`:
+
+- `executeBatch()` ne nettoyait pas le contexte ERC-4337 valide apres execution;
+- cela laissait un contexte `UserOp` stale plus longtemps que prevu;
+- le contrat nettoie maintenant le contexte apres `execute()` **et** apres `executeBatch()`.
+
+Tests ajoutes:
+
+- execution vendor via `executeBatch`;
+- test de regression interdisant la reutilisation du contexte valide apres `executeBatch`.
+
+### 13.2 Vraie mesure comparable a Hana: succes optimiste uniquement
+
+La comparaison avec le chiffre historique de Hana doit se faire sur:
+
+- deploiement;
+- `sendPayment`;
+- `sendKey`;
+- `completeTransaction`.
+
+Table mesuree:
+
+| Scenario | Deploy | Payment | Key | Complete | Total |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| normal | 2,793,386 | 104,441 | 58,908 | 69,571 | 3,026,306 |
+| `S=B` | 2,857,885 | 0 | 58,908 | 67,071 | 2,983,864 |
+| `S=V` | 2,793,628 | 104,441 | 58,908 | 67,071 | 3,024,048 |
+| `no_S_deposit` | 2,773,503 | 82,100 | 58,908 | 62,865 | 2,977,376 |
+
+Interpretation:
+
+- le chiffre `3,189,656` du rapport precedent n'etait **pas** le succes optimiste pur;
+- il incluait deja les etapes `SB` et `SV`;
+- il fallait donc le renommer en chemin **pre-dispute**, pas en "optimistic execution".
+
+### 13.3 Chemin pre-dispute
+
+Le chemin pre-dispute est:
+
+- deploiement;
+- `sendPayment`;
+- `sendKey`;
+- `SB`;
+- `SV`.
+
+Table mesuree:
+
+| Scenario | Total |
+| --- | ---: |
+| normal, `SB` external, `SV` external | 3,192,943 |
+| `S=B`, `SB` external, `SV` external | 3,152,966 |
+| `S=V`, `SB` external, `SV` external | 3,193,138 |
+| normal, `SB=B`, `SV` external | 3,184,285 |
+| normal, `SB` external, `SV=V` | 3,194,746 |
+| normal, `SB=B`, `SV=V` | 3,186,135 |
+| `no_S_deposit`, `SB` external, `SV` external | 3,150,696 |
+| `no_S_deposit`, `SB=B`, `SV` external | 3,142,073 |
+
+Message principal:
+
+- `no_S_deposit + SB=B` reste le meilleur gain sur ce segment;
+- `S=B` donne aussi un gain net utile;
+- ce tableau ne doit pas etre compare directement a Hana.
+
+### 13.4 Que signifie exactement `submitCommitment`
+
+Dans toutes les nouvelles tables:
+
+- `submitCommitment` designe la transaction vendor du **Step 8a**;
+- c'est le cas general `WaitVendorData`;
+- la transaction verifie l'ouverture, le gate, les valeurs, `pi_1`, `pi_2`, `pi_3` et `rho`.
+
+### 13.5 Que signifie `pi_1 items`
+
+`pi_1 items` = nombre de hash freres dans la preuve Merkle d'appartenance d'une gate a `hCircuit`.
+
+Donc:
+
+- en mode normal, le cout depend de la profondeur Merkle;
+- en mode hardcoded, `pi_1` disparait completement;
+- le hardcoded ne supprime pas `pi_2`, `pi_3`, `rho` ni toute la logique de Step 8, seulement la preuve d'appartenance au circuit.
+
+### 13.6 Premiere vue: premier Step 8a seulement
+
+Pour rester comparable avec le rapport precedent, on garde aussi la mesure "premier Step 8a seulement":
+
+| Scenario | Configure | SB step | Trigger dispute | submitCommitment | Total measured | `pi_1` items |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| normal, external `SB/SV` | 0 | 115,577 | 5,779,296 | 463,544 | 6,358,417 | 10 |
+| self-sponsors `SB=B/SV=V` | 0 | 106,954 | 5,781,134 | 455,741 | 6,343,829 | 10 |
+| hardcoded SHA256, external `SB/SV` | 81,897 | 115,577 | 5,787,348 | 400,990 | 6,385,812 | 0 |
+| self-sponsors `SB=B/SV=V` + hardcoded SHA256 | 81,897 | 106,954 | 5,789,186 | 393,187 | 6,371,224 | 0 |
+
+Cette table explique pourquoi le gain self-sponsor semblait auparavant faible:
+
+- elle s'arrete au **premier** `submitCommitment`;
+- elle ne capture pas encore les relances evitees par `Step 9`.
+
+### 13.7 Nouvelle mesure correcte: dispute complete jusqu'a `End`
+
+La vraie mesure de l'effet self-sponsor doit inclure:
+
+- tous les `respondChallenge`;
+- tous les `giveOpinion`;
+- tous les `submitCommitment`;
+- les relances `Step 9`;
+- et la transaction finale `cancelDispute` ou `completeDispute`.
+
+Chemin mesure:
+
+- fichier 16 KB;
+- cas general `submitCommitment`;
+- chemin observe aboutissant a `Cancel`.
+
+| Scenario | Total measured | Challenge restarts | Step 8 submissions | Final decision |
+| --- | ---: | ---: | ---: | --- |
+| normal, external `SB/SV` | 8,345,401 | 2 | 2 | Cancel |
+| self-sponsors `SB=B/SV=V` | 7,165,940 | 1 | 1 | Cancel |
+| hardcoded SHA256, external `SB/SV` | 8,310,241 | 2 | 2 | Cancel |
+| self-sponsors `SB=B/SV=V` + hardcoded SHA256 | 7,193,335 | 1 | 1 | Cancel |
+
+Interpretation:
+
+- ici, l'effet attendu par le professeur apparait bien;
+- les self-sponsors evitent une relance complete de la dispute dans ce chemin;
+- gain mesure normal vs self-sponsors:
+
+```text
+8,345,401 - 7,165,940 = 1,179,461 gas
+```
+
+- gain mesure hardcoded external vs self-sponsors + hardcoded:
+
+```text
+8,310,241 - 7,193,335 = 1,116,906 gas
+```
+
+Donc:
+
+- oui, le vrai gain self-sponsor est massif des qu'on mesure la dispute complete;
+- le chiffre precedent d'environ `14.6k gas` ne correspondait qu'au premier Step 8a.
+
+### 13.8 Hardcoded SHA256: lecture corrigee
+
+Sur `submitCommitment` seul a 16 KB:
+
+```text
+463,544 - 400,990 = 62,554 gas economises
+```
+
+Mais le hardcoded paie aussi:
+
+```text
+~81,897 gas de configuration metadata
+~8k gas de surcout de deployment dispute
+```
+
+Conclusion corrigee:
+
+- sur petits fichiers, le hardcoded baisse bien le cout du Step 8a, mais le cout fixe peut annuler une partie du gain;
+- sur dispute complete 16 KB, le hardcoded devient legerement meilleur que normal en sponsor externe (`8,310,241` vs `8,345,401`);
+- sur gros circuits 900 MiB / 1 GiB equivalents, le gain sur `pi_1` devient clairement important.
+
+### 13.9 Limite restante
+
+Le code compile et les tests passent, mais une limite importante subsiste:
+
+- `DisputeSOXAccount` et `DisputeDeployer` excedent encore la limite de taille de code EVM mainnet.
+
+Cela ne bloque pas les mesures Hardhat locales, mais ce point devra etre traite si l'objectif devient un deploiement mainnet-style.

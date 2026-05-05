@@ -29,63 +29,140 @@ Environment: Hardhat local network, Solidity 0.8.28, `viaIR=true`, optimizer ena
 - Large-file on-chain measurements cover both 900 MiB and 1 GiB equivalent circuits.
 - Off-chain execution timings are measured for the current WASM V2 pipeline and for 900 MiB / 1 GiB streaming hardcoded metadata.
 
-## Optimistic Phase Gas
+## Measurement Scope Correction
 
-The totals below include deployment plus the optimistic/dispute-trigger steps measured in the mock-dispute matrix.
+Following the professor's feedback, the optimistic path and the dispute path are now reported with separate scopes:
+
+- `optimistic success path`: deployment + `sendPayment` + `sendKey` + `completeTransaction`;
+- `pre-dispute path`: deployment + `sendPayment` + `sendKey` + `SB` + `SV`;
+- `first Step 8a transaction`: cost up to the first `submitCommitment`;
+- `full dispute until End`: the complete dispute, including Step 9 restarts and final `completeDispute` or `cancelDispute`.
+
+In the tables below, `submitCommitment` is the vendor Step 8a transaction in the general case (`WaitVendorData`). `pi_1 items` is the number of sibling hashes in the Merkle membership proof over `hCircuit`.
+
+## Optimistic Success Path Gas
+
+This table is the correct comparator for Hana's "deployment + optimistic execution" figure.
+
+| Scenario | Deploy | Payment | Key | Complete | Total |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| normal | 2,793,386 | 104,441 | 58,908 | 69,571 | 3,026,306 |
+| `S=B` | 2,857,885 | 0 | 58,908 | 67,071 | 2,983,864 |
+| `S=V` | 2,793,628 | 104,441 | 58,908 | 67,071 | 3,024,048 |
+| `no_S_deposit` | 2,773,503 | 82,100 | 58,908 | 62,865 | 2,977,376 |
+
+Interpretation:
+
+- the normal success path is now measured separately at `3,026,306 gas`;
+- `S=B` saves `42,442 gas` versus the normal success path;
+- `no_S_deposit` saves `48,930 gas` versus the normal success path;
+- `S=V` is slightly cheaper than normal in the success-only path, but the effect remains modest.
+
+## Pre-Dispute Path Gas
+
+This table includes the optimistic path plus the `SB` and `SV` steps that trigger the dispute, so it should not be compared directly with Hana's "success" number.
 
 | Scenario | Deploy | Payment | Key | SB | SV | Configure | Total |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| normal, SB external, SV external | 2,790,122 | 104,441 | 58,908 | 115,577 | 120,608 | 0 | 3,189,656 |
-| S=B, SB external, SV external | 2,854,621 | 0 | 58,908 | 115,600 | 120,608 | 0 | 3,149,737 |
-| S=V, SB external, SV external | 2,790,364 | 104,441 | 58,908 | 115,600 | 120,608 | 0 | 3,189,921 |
-| normal, SB=B, SV external | 2,790,122 | 104,441 | 58,908 | 106,954 | 120,608 | 0 | 3,181,033 |
-| normal, SB external, SV=V | 2,790,110 | 104,441 | 58,908 | 115,588 | 122,446 | 0 | 3,191,493 |
-| normal, SB=B, SV=V | 2,790,122 | 104,441 | 58,908 | 106,954 | 122,446 | 0 | 3,182,871 |
-| no_S_deposit, SB external, SV external | 2,770,239 | 82,100 | 58,908 | 115,600 | 120,608 | 0 | 3,147,455 |
-| no_S_deposit, SB=B, SV external | 2,770,239 | 82,100 | 58,908 | 106,954 | 120,608 | 0 | 3,138,809 |
-| S=B + hardcoded SHA256 config | 2,854,621 | 0 | 58,908 | 115,565 | 120,608 | 79,982 | 3,229,684 |
+| normal, `SB` external, `SV` external | 2,793,386 | 104,441 | 58,908 | 115,600 | 120,608 | 0 | 3,192,943 |
+| `S=B`, `SB` external, `SV` external | 2,857,885 | 0 | 58,908 | 115,565 | 120,608 | 0 | 3,152,966 |
+| `S=V`, `SB` external, `SV` external | 2,793,628 | 104,441 | 58,908 | 115,553 | 120,608 | 0 | 3,193,138 |
+| normal, `SB=B`, `SV` external | 2,793,374 | 104,441 | 58,908 | 106,954 | 120,608 | 0 | 3,184,285 |
+| normal, `SB` external, `SV=V` | 2,793,386 | 104,441 | 58,908 | 115,565 | 122,446 | 0 | 3,194,746 |
+| normal, `SB=B`, `SV=V` | 2,793,386 | 104,441 | 58,908 | 106,954 | 122,446 | 0 | 3,186,135 |
+| `no_S_deposit`, `SB` external, `SV` external | 2,773,503 | 82,100 | 58,908 | 115,577 | 120,608 | 0 | 3,150,696 |
+| `no_S_deposit`, `SB=B`, `SV` external | 2,773,503 | 82,100 | 58,908 | 106,954 | 120,608 | 0 | 3,142,073 |
+| `S=B` + hardcoded SHA256 config | 2,857,885 | 0 | 58,908 | 115,600 | 120,608 | 79,982 | 3,232,983 |
 
-## Optimistic Savings
+Interpretation:
 
-Baseline: `normal, SB external, SV external = 3,189,656 gas`.
+- `S=B` saves `39,977 gas` on the pre-dispute path;
+- `SB=B` saves `8,658 gas` on the pre-dispute path;
+- `no_S_deposit + SB=B` gives the best measured pre-dispute saving: `50,870 gas`;
+- the hardcoded SHA256 option is not meant to optimize this optimistic/pre-dispute segment.
 
-| Scenario | Delta vs baseline | Interpretation |
-| --- | ---: | --- |
-| S=B | -39,919 | Saves one payment transaction, but deployment is more expensive because the buyer deposit is fused into construction. |
-| S=V | +265 | Essentially gas-neutral in the current implementation; main benefit is role simplification, not gas. |
-| SB=B | -8,623 | Real saving on Step 4+5 because no buyer authorization signature is needed. |
-| SV=V | +1,837 | Slightly more expensive due to the self-sponsor wrapper/event; useful mostly for coordination simplification. |
-| SB=B + SV=V | -6,785 | SB saving is partly offset by the SV self-sponsor overhead. |
-| no_S_deposit | -42,201 | Removes sponsor deposit logic and lowers buyer payment gas/value path. |
-| no_S_deposit + SB=B | -50,847 | Best measured optimistic-path saving among retained variants. |
+## First Step 8a Measurements
 
-## Hardcoded SHA256 Dispute Gas
+These measurements use real `compute_precontract_values_v2`, `evaluate_circuit_v2_wasm`, and `compute_proofs_v2` outputs. They stop after the first Step 8a transaction (`submitCommitment`).
 
-These measurements use real `compute_precontract_values_v2`, `evaluate_circuit_v2_wasm`, and `compute_proofs_v2` outputs.
-
-| Scenario | Configure | SB step | Trigger dispute | submitCommitment | Total measured | proof1 items |
+| Scenario | Configure | SB step | Trigger dispute | submitCommitment | Total measured | `pi_1` items |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| normal hCircuit proof, 13 bytes | 0 | 115,577 | 5,779,296 | 251,444 | 6,146,317 | 3 |
-| hardcoded SHA256, 13 bytes | 81,897 | 115,565 | 5,787,348 | 234,626 | 6,219,436 | 0 |
-| normal hCircuit proof, 16 KB | 0 | 115,577 | 5,779,296 | 463,544 | 6,358,417 | 10 |
-| hardcoded SHA256, 16 KB | 81,897 | 115,577 | 5,787,348 | 400,990 | 6,385,812 | 0 |
+| normal `hCircuit`, 13 bytes | 0 | 115,588 | 5,779,296 | 251,444 | 6,146,328 | 3 |
+| hardcoded SHA256, 13 bytes | 81,897 | 115,600 | 5,787,348 | 234,614 | 6,219,459 | 0 |
+| normal `hCircuit`, 16 KB | 0 | 115,588 | 5,779,296 | 463,544 | 6,358,428 | 10 |
+| hardcoded SHA256, 16 KB | 81,897 | 115,577 | 5,787,348 | 400,966 | 6,385,788 | 0 |
 
-## Retained Dispute Cases
+Interpretation:
 
-This is the compact comparison requested for the presentation: normal, self-sponsors, hardcoded circuit, and self-sponsors plus hardcoded circuit. The file size is 16 KB and all rows use a real `DisputeSOXAccount`.
+- hardcoded SHA256 removes `pi_1` entirely;
+- on `submitCommitment` alone, the saving is `16,830 gas` at 13 bytes and `62,578 gas` at 16 KB;
+- this first-Step-8 measurement does not include the extra Step 9 loops avoided by self-sponsoring.
 
-| Scenario | Configure | SB step | Trigger dispute | submitCommitment | Total measured | proof1 items |
+## Specialized Hardcoded Deployment Path
+
+The measurements above correspond to the original monolithic hardcoded path, where the optimistic account is deployed first and then configured with a separate `configureHardcodedSha256Circuit(...)` transaction.
+
+The current app path no longer uses that deployment mode. It now deploys dedicated hardcoded contracts with the SHA256 metadata embedded in the constructor:
+
+- `OptimisticSOXAccountHardcodedSHA256`
+- `DisputeDeployerHardcodedSHA256`
+- `DisputeSOXAccountHardcodedSHA256`
+
+This removes the standalone configuration transaction and avoids paying the full non-hardcoded bytecode tax in the optimistic account.
+
+Bytecode comparison:
+
+| Contract | Monolithic bytes | Specialized hardcoded bytes | Delta |
+| --- | ---: | ---: | ---: |
+| optimistic account | 11,456 | 10,740 | -716 |
+| dispute account | 26,439 | 26,261 | -178 |
+
+Gas comparison for the deployed hardcoded path:
+
+| Measurement | Monolithic hardcoded | Specialized hardcoded | Saving |
+| --- | ---: | ---: | ---: |
+| optimistic deploy | 2,793,386 | 2,649,667 | 143,719 |
+| hardcoded setup tx | 81,897 | 0 | 81,897 |
+| vendor dispute-trigger tx | 5,767,448 | 5,723,102 | 44,346 |
+| total deploy + trigger path | 8,921,680 | 8,651,674 | 270,006 |
+
+Interpretation:
+
+- the gain is smaller than for the normal-path split because the hardcoded helpers still have to exist somewhere;
+- the important practical win is that the hardcoded metadata is now part of deployment, so there is no extra setup transaction in the real app flow;
+- the previously reported `~81.9k gas` hardcoded configuration overhead is therefore no longer paid by the deployed hardcoded path.
+
+## Retained First-Step-8 Comparison
+
+This compact table matches the four cases requested for the presentation, but it is still a first-Step-8 view, not the full dispute to `End`.
+
+| Scenario | Configure | SB step | Trigger dispute | submitCommitment | Total measured | `pi_1` items |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| normal, external `SB/SV` | 0 | 115,600 | 5,779,296 | 463,544 | 6,358,440 | 10 |
+| normal, external `SB/SV` | 0 | 115,577 | 5,779,296 | 463,544 | 6,358,417 | 10 |
 | self-sponsors `SB=B/SV=V` | 0 | 106,954 | 5,781,134 | 455,741 | 6,343,829 | 10 |
 | hardcoded SHA256, external `SB/SV` | 81,897 | 115,577 | 5,787,348 | 400,990 | 6,385,812 | 0 |
 | self-sponsors `SB=B/SV=V` + hardcoded SHA256 | 81,897 | 106,954 | 5,789,186 | 393,187 | 6,371,224 | 0 |
 
-Interpretation:
+## Full Dispute Until End
 
-- Self-sponsors reduce the measured dispute path by 14,611 gas at 16 KB, mainly by making `SB=B` cheaper and slightly reducing `submitCommitment`.
-- Hardcoded SHA256 removes `pi_1` from Step 8 and saves 62,554 gas on `submitCommitment` at 16 KB, but the current implementation pays 81,897 gas for separate metadata configuration and about 8,052 gas of extra dispute deployment overhead.
-- Self-sponsors plus hardcoded SHA256 is cheaper than hardcoded with external sponsors, but for 16 KB it is still not cheaper end-to-end than normal because the current one-time hardcoded overhead dominates.
+This is the corrected measurement for the self-sponsor effect. It includes Step 9 restarts, all challenge/opinion rounds, every Step 8a submission, and the final `cancelDispute` or `completeDispute`.
+
+The measured path below ends in `Cancel` for all four rows because the chosen proof path makes the buyer win. The important comparison is the number of full Step 8 cycles and total gas.
+
+| Scenario | Configure | SB step | Trigger dispute | respondChallenge | giveOpinion | submitCommitment | Finalize | Total measured | Challenge restarts | Step 8 submissions | Final decision |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| normal, external `SB/SV` | 0 | 115,577 | 5,779,296 | 730,818 | 765,456 | 877,792 | 76,462 | 8,345,401 | 2 | 2 | Cancel |
+| self-sponsors `SB=B/SV=V` | 0 | 106,954 | 5,781,134 | 365,409 | 382,728 | 455,753 | 73,962 | 7,165,940 | 1 | 1 | Cancel |
+| hardcoded SHA256, external `SB/SV` | 81,897 | 115,600 | 5,787,348 | 730,818 | 765,456 | 752,660 | 76,462 | 8,310,241 | 2 | 2 | Cancel |
+| self-sponsors `SB=B/SV=V` + hardcoded SHA256 | 81,897 | 106,954 | 5,789,186 | 365,409 | 382,728 | 393,199 | 73,962 | 7,193,335 | 1 | 1 | Cancel |
+
+Interpretation for the historical monolithic hardcoded path:
+
+- this is where the self-sponsor effect becomes large, as expected from Step 9;
+- external sponsors require two full challenge/Step-8 cycles in this path, while self-sponsors need only one;
+- the measured end-to-end saving is `1,179,461 gas` for self-sponsors versus normal in the non-hardcoded case;
+- with hardcoded SHA256, the same full-dispute saving remains very large: `1,116,906 gas`;
+- at 16 KB, hardcoded SHA256 is already slightly cheaper than the normal external full dispute (`8,310,241` vs `8,345,401`), but it is still slightly more expensive than the self-sponsored non-hardcoded path in the monolithic configuration because of the fixed hardcoded setup overhead.
 
 ## Large-File Equivalent Benchmark
 

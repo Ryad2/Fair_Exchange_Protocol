@@ -6,6 +6,7 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
+    "notion:push-phase4": "node scripts/push-phase4-to-notion.mjs",
     "lint": "next lint"
   },
   "dependencies": {

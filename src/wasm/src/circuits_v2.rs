@@ -1,11 +1,10 @@
 use crate::aes_ctr;
 use crate::utils::die;
-use crate::accumulator::{acc, acc_fixed64, hash_block64};
+use crate::accumulator::hash_block64;
 use crate::sha256::sha256_compress;
 use sha3::{Digest, Keccak256};
 use rmp_serde::{encode::write, from_read};
 use serde::{Deserialize, Serialize};
-use crate::sha256::sha256;
 
 /// Opcodes for the new 64-byte gate format.
 pub const OPCODE_AES_CTR: u8 = 0x01;

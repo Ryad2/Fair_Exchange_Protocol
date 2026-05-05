@@ -101,3 +101,6 @@ Thumbs.db
 # Logs
 *.log
 logs/
+
+# Notion sync backups
+notion-backups/

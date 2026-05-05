@@ -40,6 +40,16 @@ type GasBreakdown = {
     total: bigint;
 };
 
+type OptimisticSuccessGasBreakdown = {
+    label: string;
+    deploy: bigint;
+    configure?: bigint;
+    payment?: bigint;
+    key: bigint;
+    complete: bigint;
+    total: bigint;
+};
+
 type DisputeGasBreakdown = {
     label: string;
     configure: bigint;
@@ -51,12 +61,43 @@ type DisputeGasBreakdown = {
     proof1Items: number;
 };
 
+type FullDisputeGasBreakdown = {
+    label: string;
+    configure: bigint;
+    sb: bigint;
+    triggerDispute: bigint;
+    respondChallenge: bigint;
+    giveOpinion: bigint;
+    submitCommitment: bigint;
+    finalize: bigint;
+    totalMeasured: bigint;
+    challengeRestarts: number;
+    step8Submissions: number;
+    finalDecision: string;
+};
+
 type RealDisputeMeasurementOptions = {
     hardcoded: boolean;
     fileLength: number;
     sbSelf?: boolean;
     svSelf?: boolean;
     label?: string;
+};
+
+type RealDisputeContext = {
+    hardcoded: boolean;
+    fileLength: number;
+    precontract: any;
+    evaluatedBytes: Uint8Array;
+    account: any;
+    dispute: any;
+    buyer: any;
+    vendor: any;
+    buyerDisputeSponsor: any;
+    vendorDisputeSponsor: any;
+    configureGas: bigint;
+    sbGas: bigint;
+    triggerDisputeGas: bigint;
 };
 
 type LargeCircuitGasBreakdown = {
@@ -127,6 +168,18 @@ function serializeGas(row: GasBreakdown) {
     };
 }
 
+function serializeOptimisticSuccessGas(row: OptimisticSuccessGasBreakdown) {
+    return {
+        label: row.label,
+        deploy: row.deploy.toString(),
+        configure: row.configure?.toString() ?? "0",
+        payment: row.payment?.toString() ?? "0",
+        key: row.key.toString(),
+        complete: row.complete.toString(),
+        total: row.total.toString(),
+    };
+}
+
 function serializeDisputeGas(row: DisputeGasBreakdown) {
     return {
         label: row.label,
@@ -137,6 +190,23 @@ function serializeDisputeGas(row: DisputeGasBreakdown) {
         totalMeasured: row.totalMeasured.toString(),
         proof1Levels: row.proof1Levels.toString(),
         proof1Items: row.proof1Items.toString(),
+    };
+}
+
+function serializeFullDisputeGas(row: FullDisputeGasBreakdown) {
+    return {
+        label: row.label,
+        configure: row.configure.toString(),
+        sb: row.sb.toString(),
+        triggerDispute: row.triggerDispute.toString(),
+        respondChallenge: row.respondChallenge.toString(),
+        giveOpinion: row.giveOpinion.toString(),
+        submitCommitment: row.submitCommitment.toString(),
+        finalize: row.finalize.toString(),
+        totalMeasured: row.totalMeasured.toString(),
+        challengeRestarts: row.challengeRestarts.toString(),
+        step8Submissions: row.step8Submissions.toString(),
+        finalDecision: row.finalDecision,
     };
 }
 
@@ -163,6 +233,10 @@ function labelOf(pre: PreVariant, sbSelf: boolean, svSelf: boolean, noS = false)
     const sb = sbSelf ? "SB=B" : "SB=external";
     const sv = svSelf ? "SV=V" : "SV=external";
     return `${s} | ${sb} | ${sv}`;
+}
+
+function labelSuccessOf(pre: PreVariant, noS = false) {
+    return `${noS ? "no_S_deposit" : pre} | optimistic success`;
 }
 
 function hardcodedBlockCount(plaintextLength: bigint) {
@@ -403,6 +477,57 @@ describe("Phase 3 exhaustive matrix and gas measurements", () => {
         };
     }
 
+    async function runOptimisticSuccessFlow(
+        pre: PreVariant,
+        options?: { noS?: boolean; configureHardcoded?: boolean }
+    ): Promise<OptimisticSuccessGasBreakdown> {
+        const { account, buyer, vendor, deployGas } = await deployMockOptimistic(
+            pre,
+            options?.noS ?? false
+        );
+
+        let configureGas = 0n;
+        if (options?.configureHardcoded) {
+            const descriptionHash = ethers.sha256(ethers.toUtf8Bytes("phase3-gas"));
+            const iv = "0x0102030405060708090a0b0c0d0e0f10";
+            configureGas = await gasOf(
+                account
+                    .connect(pre === "S=B" ? buyer : vendor)
+                    .configureHardcodedSha256Circuit(descriptionHash, 13n, iv)
+            );
+        }
+
+        let paymentGas: bigint | undefined;
+        if (pre !== "S=B" || options?.noS) {
+            paymentGas = await gasOf(
+                account.connect(buyer).sendPayment({
+                    value: options?.noS ? AGREED_PRICE : AGREED_PRICE + COMPLETION_TIP,
+                })
+            );
+        } else {
+            expect(await account.currState()).to.equal(1n);
+        }
+
+        const keyGas = await gasOf(account.connect(vendor).sendKey(KEY));
+        const completeGas = await gasOf(account.connect(buyer).completeTransaction());
+
+        expect(await account.currState()).to.equal(5n);
+
+        const total = deployGas + configureGas + (paymentGas ?? 0n) + keyGas + completeGas;
+
+        return {
+            label: `${labelSuccessOf(pre, options?.noS)}${
+                options?.configureHardcoded ? " | hardcoded SHA256" : ""
+            }`,
+            deploy: deployGas,
+            configure: configureGas === 0n ? undefined : configureGas,
+            payment: paymentGas,
+            key: keyGas,
+            complete: completeGas,
+            total,
+        };
+    }
+
     const matrix12: MatrixCase[] = (["normal", "S=V", "S=B"] as PreVariant[]).flatMap(
         (pre) => [
             { pre, sbSelf: false, svSelf: false },
@@ -511,7 +636,26 @@ describe("Phase 3 exhaustive matrix and gas measurements", () => {
         ).to.be.revertedWith("Configure before payment or key");
     });
 
-    it("prints Phase 3 optimistic gas comparison for retained and matrix cases", async () => {
+    it("measures optimistic success path separately from dispute-trigger paths", async () => {
+        const rows: OptimisticSuccessGasBreakdown[] = [];
+        for (const scenario of [
+            { pre: "normal" as PreVariant },
+            { pre: "S=B" as PreVariant },
+            { pre: "S=V" as PreVariant },
+            { pre: "normal" as PreVariant, noS: true },
+        ]) {
+            rows.push(await runOptimisticSuccessFlow(scenario.pre, { noS: scenario.noS }));
+        }
+
+        const serialized = rows.map(serializeOptimisticSuccessGas);
+        console.table(serialized);
+        console.log(`PHASE3_OPTIMISTIC_SUCCESS_GAS_JSON=${JSON.stringify(serialized)}`);
+
+        const normal = rows.find((row) => row.label === "normal | optimistic success");
+        expect(normal?.complete ?? 0n).to.be.greaterThan(0n);
+    });
+
+    it("prints Phase 3 pre-dispute gas comparison for retained and matrix cases", async () => {
         const measuredCases: Array<{ scenario: MatrixCase; noS?: boolean; hardcoded?: boolean }> = [
             { scenario: { pre: "normal", sbSelf: false, svSelf: false } },
             { scenario: { pre: "S=B", sbSelf: false, svSelf: false } },
@@ -536,7 +680,7 @@ describe("Phase 3 exhaustive matrix and gas measurements", () => {
 
         const serialized = rows.map(serializeGas);
         console.table(serialized);
-        console.log(`PHASE3_OPTIMISTIC_GAS_JSON=${JSON.stringify(serialized)}`);
+        console.log(`PHASE3_PRE_DISPUTE_GAS_JSON=${JSON.stringify(serialized)}`);
 
         const normal = rows.find((row) => row.label === "normal | SB=external | SV=external");
         const fused = rows.find((row) => row.label === "S=B | SB=external | SV=external");
@@ -544,9 +688,9 @@ describe("Phase 3 exhaustive matrix and gas measurements", () => {
         expect(fused?.payment ?? 0n).to.equal(0n);
     });
 
-    async function deployRealDisputeForHardcodedMeasurement(
+    async function prepareRealDisputeMeasurementContext(
         options: RealDisputeMeasurementOptions
-    ) {
+    ): Promise<RealDisputeContext> {
         await initWasmOnce();
         const { hardcoded, fileLength, sbSelf = false, svSelf = false } = options;
 
@@ -680,28 +824,81 @@ describe("Phase 3 exhaustive matrix and gas measurements", () => {
         const disputeAddress = await account.disputeContract();
         const dispute = await ethers.getContractAt("DisputeSOXAccount", disputeAddress);
 
-        let state = Number(await dispute.currState());
+        return {
+            hardcoded,
+            fileLength,
+            precontract,
+            evaluatedBytes,
+            account,
+            dispute,
+            buyer,
+            vendor,
+            buyerDisputeSponsor,
+            vendorDisputeSponsor,
+            configureGas,
+            sbGas,
+            triggerDisputeGas,
+        };
+    }
+
+    async function signerForDisputeAddress(context: RealDisputeContext, address: string) {
+        const actors = [
+            context.buyer,
+            context.vendor,
+            context.buyerDisputeSponsor,
+            context.vendorDisputeSponsor,
+        ];
+        const normalized = address.toLowerCase();
+        for (const actor of actors) {
+            if ((await actor.getAddress()).toLowerCase() === normalized) {
+                return actor;
+            }
+        }
+        throw new Error(`No signer available for dispute address ${address}`);
+    }
+
+    async function advanceDisputeToWaitVendorData(context: RealDisputeContext) {
+        let respondGas = 0n;
+        let opinionGas = 0n;
         let rounds = 0;
+        let state = Number(await context.dispute.currState());
+
         while (state === 0 && rounds < 16) {
-            await dispute.connect(buyer).respondChallenge(ethers.ZeroHash);
-            await dispute.connect(vendor).giveOpinion(rounds !== 0);
-            state = Number(await dispute.currState());
+            const currentBuyer = await context.dispute.buyer();
+            const currentVendor = await context.dispute.vendor();
+            const buyerActor = await signerForDisputeAddress(context, currentBuyer);
+            const vendorActor = await signerForDisputeAddress(context, currentVendor);
+
+            respondGas += await gasOf(
+                context.dispute.connect(buyerActor).respondChallenge(ethers.ZeroHash)
+            );
+            opinionGas += await gasOf(
+                context.dispute.connect(vendorActor).giveOpinion(rounds !== 0)
+            );
+
+            state = Number(await context.dispute.currState());
             rounds++;
         }
-        expect(state).to.equal(2);
 
-        const gateNum = Number(await dispute.a());
+        expect(state).to.equal(2);
+        return { respondGas, opinionGas, rounds };
+    }
+
+    async function submitMiddleGateCommitment(context: RealDisputeContext) {
+        const gateNum = Number(await context.dispute.a());
         const proofs = compute_proofs_v2(
-            precontract.circuit_bytes,
-            evaluatedBytes,
-            precontract.ct,
+            context.precontract.circuit_bytes,
+            context.evaluatedBytes,
+            context.precontract.ct,
             gateNum
         );
 
-        const proof1 = hardcoded ? [] : proofToHex(proofs.proof1);
+        const proof1 = context.hardcoded ? [] : proofToHex(proofs.proof1);
+        const currentVendor = await context.dispute.vendor();
+        const vendorActor = await signerForDisputeAddress(context, currentVendor);
         const submitCommitmentGas = await gasOf(
-            dispute.connect(vendor).submitCommitment(
-                hexlifyBytes(precontract.commitment.o),
+            context.dispute.connect(vendorActor).submitCommitment(
+                hexlifyBytes(context.precontract.commitment.o),
                 gateNum,
                 hexlifyBytes(proofs.gate_bytes),
                 bytesArrayToHex(proofs.values),
@@ -714,18 +911,115 @@ describe("Phase 3 exhaustive matrix and gas measurements", () => {
         );
 
         return {
+            submitCommitmentGas,
+            proof1Levels: proof1.length,
+            proof1Items: context.hardcoded ? 0 : countProofItems(proofs.proof1),
+        };
+    }
+
+    async function deployRealDisputeForHardcodedMeasurement(
+        options: RealDisputeMeasurementOptions
+    ): Promise<DisputeGasBreakdown> {
+        const context = await prepareRealDisputeMeasurementContext(options);
+        await advanceDisputeToWaitVendorData(context);
+        const submission = await submitMiddleGateCommitment(context);
+
+        return {
             label:
                 options.label ??
-                `${hardcoded ? "dispute hardcoded SHA256" : "dispute normal hCircuit proof"}${
-                    sbSelf || svSelf ? " self-sponsors" : ""
-                } (${fileLength} bytes)`,
-            configure: configureGas,
-            sb: sbGas,
-            triggerDispute: triggerDisputeGas,
+                `${context.hardcoded ? "dispute hardcoded SHA256" : "dispute normal hCircuit proof"}${
+                    options.sbSelf || options.svSelf ? " self-sponsors" : ""
+                } (${context.fileLength} bytes)`,
+            configure: context.configureGas,
+            sb: context.sbGas,
+            triggerDispute: context.triggerDisputeGas,
+            submitCommitment: submission.submitCommitmentGas,
+            totalMeasured:
+                context.configureGas +
+                context.sbGas +
+                context.triggerDisputeGas +
+                submission.submitCommitmentGas,
+            proof1Levels: submission.proof1Levels,
+            proof1Items: submission.proof1Items,
+        };
+    }
+
+    async function measureFullDisputeToEnd(
+        options: RealDisputeMeasurementOptions
+    ): Promise<FullDisputeGasBreakdown> {
+        const context = await prepareRealDisputeMeasurementContext(options);
+        let respondChallengeGas = 0n;
+        let giveOpinionGas = 0n;
+        let submitCommitmentGas = 0n;
+        let finalizeGas = 0n;
+        let challengeRestarts = 0;
+        let step8Submissions = 0;
+        let finalDecision = "unknown";
+
+        for (let cycle = 0; cycle < 4; cycle++) {
+            const state = Number(await context.dispute.currState());
+            if (state === 0) {
+                challengeRestarts++;
+                const advanced = await advanceDisputeToWaitVendorData(context);
+                respondChallengeGas += advanced.respondGas;
+                giveOpinionGas += advanced.opinionGas;
+
+                const submission = await submitMiddleGateCommitment(context);
+                submitCommitmentGas += submission.submitCommitmentGas;
+                step8Submissions++;
+                continue;
+            }
+
+            if (state === 5) {
+                finalDecision = "Complete";
+                const currentBuyer = await context.dispute.buyer();
+                const buyerActor = await signerForDisputeAddress(context, currentBuyer);
+                finalizeGas = await gasOf(context.dispute.connect(buyerActor).completeDispute());
+                break;
+            }
+
+            if (state === 6) {
+                finalDecision = "Cancel";
+                const currentVendor = await context.dispute.vendor();
+                const vendorActor = await signerForDisputeAddress(context, currentVendor);
+                finalizeGas = await gasOf(context.dispute.connect(vendorActor).cancelDispute());
+                break;
+            }
+
+            if (state === 7) {
+                finalDecision = "End";
+                break;
+            }
+
+            throw new Error(`Unexpected dispute state during full measurement: ${state}`);
+        }
+
+        expect(await context.dispute.currState()).to.equal(7n);
+
+        return {
+            label:
+                options.label ??
+                `full dispute ${context.hardcoded ? "hardcoded SHA256" : "normal"}${
+                    options.sbSelf || options.svSelf ? " self-sponsors" : ""
+                } (${context.fileLength} bytes)`,
+            configure: context.configureGas,
+            sb: context.sbGas,
+            triggerDispute: context.triggerDisputeGas,
+            respondChallenge: respondChallengeGas,
+            giveOpinion: giveOpinionGas,
             submitCommitment: submitCommitmentGas,
-            totalMeasured: configureGas + sbGas + triggerDisputeGas + submitCommitmentGas,
-            proof1Levels: proof1.length,
-            proof1Items: hardcoded ? 0 : countProofItems(proofs.proof1),
+            finalize: finalizeGas,
+            totalMeasured:
+                context.configureGas +
+                context.sbGas +
+                context.triggerDisputeGas +
+                respondChallengeGas +
+                giveOpinionGas +
+                submitCommitmentGas +
+                finalizeGas,
+            challengeRestarts,
+            step8Submissions,
+            finalDecision,
         };
     }
 
@@ -892,6 +1186,44 @@ describe("Phase 3 exhaustive matrix and gas measurements", () => {
         expect(hardcoded.proof1Items).to.equal(0);
         expect(selfSponsoredHardcoded.proof1Items).to.equal(0);
         expect(hardcoded.submitCommitment).to.be.lessThan(normal.submitCommitment);
+    });
+
+    it("measures full dispute cost until End for external sponsors vs self-sponsors", async () => {
+        const fileLength = 16 * 1024;
+        const rows = [
+            await measureFullDisputeToEnd({
+                hardcoded: false,
+                fileLength,
+                label: "full dispute normal external sponsors until End (16 KB)",
+            }),
+            await measureFullDisputeToEnd({
+                hardcoded: false,
+                fileLength,
+                sbSelf: true,
+                svSelf: true,
+                label: "full dispute self-sponsors SB=B/SV=V until End (16 KB)",
+            }),
+            await measureFullDisputeToEnd({
+                hardcoded: true,
+                fileLength,
+                label: "full dispute hardcoded SHA256 external sponsors until End (16 KB)",
+            }),
+            await measureFullDisputeToEnd({
+                hardcoded: true,
+                fileLength,
+                sbSelf: true,
+                svSelf: true,
+                label: "full dispute self-sponsors + hardcoded SHA256 until End (16 KB)",
+            }),
+        ];
+
+        const serialized = rows.map(serializeFullDisputeGas);
+        console.table(serialized);
+        console.log(`PHASE3_FULL_DISPUTE_GAS_JSON=${JSON.stringify(serialized)}`);
+
+        expect(rows[1].step8Submissions).to.be.lessThan(rows[0].step8Submissions);
+        expect(rows[1].totalMeasured).to.be.lessThan(rows[0].totalMeasured);
+        expect(rows[3].step8Submissions).to.be.lessThan(rows[2].step8Submissions);
     });
 
     it("measures large-file equivalent hCircuit proof before/after hardcoded SHA256", async () => {

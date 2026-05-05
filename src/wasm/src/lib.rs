@@ -674,9 +674,9 @@ pub fn compute_precontract_values_v2(file: &mut [u8], key: &[u8]) -> Precontract
     let circuit = compile_circuit_v2(&ct, &description);
     let num_blocks = circuit.num_blocks;
     let num_gates = circuit.gates.len() as u32;
-    let circuit_bytes = circuit.to_bytes();
     let h_ct = acc_ct(&ct, circuit.block_size as usize);
     let h_circuit = crate::circuits_v2::acc_circuit_v2(&circuit.gates);
+    let circuit_bytes = circuit.to_bytes();
     let commitment = commit_hashes(&h_circuit, &h_ct);
 
     Precontract {

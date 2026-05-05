@@ -642,6 +642,24 @@ export function compute_proofs_left(circuit_bytes, evaluated_circuit_bytes, ct, 
 }
 
 /**
+ * Creates a commitment for the given data by appending random bytes and hashing
+ *
+ * # Arguments
+ * * `data` - Data to commit to
+ *
+ * # Returns
+ * A `Commitment` containing the commitment hash and opening value
+ * @param {Uint8Array} data
+ * @returns {Commitment}
+ */
+export function commit(data) {
+    const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.commit(ptr0, len0);
+    return Commitment.__wrap(ret);
+}
+
+/**
  * Compiles a basic circuit for processing ciphertext. Once the key is bound, the circuit computes
  * the SHA256 hash of the initial plaintext and compares it to the provided description.
  *
@@ -683,21 +701,107 @@ function passArray32ToWasm0(arg, malloc) {
     return ptr;
 }
 /**
- * Creates a commitment for the given data by appending random bytes and hashing
+ * JavaScript wrapper of the prove_ext function
  *
  * # Arguments
- * * `data` - Data to commit to
+ * * `values` - Array of Uint8Arrays containing the sequence of values
  *
  * # Returns
- * A `Commitment` containing the commitment hash and opening value
- * @param {Uint8Array} data
- * @returns {Commitment}
+ * Array of Uint8Arrays containing the extension proof components
+ * @param {Uint8Array[]} values
+ * @returns {Array<any>}
  */
-export function commit(data) {
-    const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
+export function prove_ext_js(values) {
+    const ptr0 = passArrayJsValueToWasm0(values, wasm.__wbindgen_malloc);
     const len0 = WASM_VECTOR_LEN;
-    const ret = wasm.commit(ptr0, len0);
-    return Commitment.__wrap(ret);
+    const ret = wasm.prove_ext_js(ptr0, len0);
+    return ret;
+}
+
+/**
+ * JavaScript wrapper of the accumulator function
+ *
+ * # Arguments
+ * * `values` - Array of Uint8Arrays to accumulate
+ *
+ * # Returns
+ * Accumulated value as bytes
+ * @param {Uint8Array[]} values
+ * @returns {Uint8Array}
+ */
+export function acc_js(values) {
+    const ptr0 = passArrayJsValueToWasm0(values, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.acc_js(ptr0, len0);
+    var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v2;
+}
+
+/**
+ * JavaScript wrapper of the prove function
+ *
+ * # Arguments
+ * * `values` - Array of Uint8Arrays containing all values in the tree
+ * * `indices` - Array of indices for values to include in proof
+ *
+ * # Returns
+ * Array of arrays of Uint8Arrays containing the proof layers
+ * @param {Uint8Array[]} values
+ * @param {Array<any>} indices
+ * @returns {Array<any>}
+ */
+export function prove_js(values, indices) {
+    const ptr0 = passArrayJsValueToWasm0(values, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.prove_js(ptr0, len0, indices);
+    return ret;
+}
+
+/**
+ * JavaScript wrapper for encrypt_block
+ *
+ * # Arguments
+ * * `data` - Vector of Uint8Arrays containing:
+ *   - key (16 bytes)
+ *   - blocks to encrypt (<=112 bytes)
+ *   - IV/counter starting value (16 bytes)
+ *
+ * # Returns
+ * Encrypted bytes
+ * @param {Uint8Array[]} data
+ * @returns {Uint8Array}
+ */
+export function encrypt_block_js(data) {
+    const ptr0 = passArrayJsValueToWasm0(data, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.encrypt_block_js(ptr0, len0);
+    var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v2;
+}
+
+/**
+ * JavaScript wrapper for decrypt_block
+ *
+ * # Arguments
+ * * `data` - Vector of Uint8Arrays containing:
+ *   - key (16 bytes)
+ *   - blocks to decrypt (<=112 bytes)
+ *   - IV/counter starting value (16 bytes)
+ *
+ * # Returns
+ * Decrypted bytes
+ * @param {Uint8Array[]} data
+ * @returns {Uint8Array}
+ */
+export function decrypt_block_js(data) {
+    const ptr0 = passArrayJsValueToWasm0(data, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.decrypt_block_js(ptr0, len0);
+    var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v2;
 }
 
 /**
@@ -770,110 +874,6 @@ export function sha256_compress_final_js(data) {
     var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
     wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
     return v2;
-}
-
-/**
- * JavaScript wrapper for encrypt_block
- *
- * # Arguments
- * * `data` - Vector of Uint8Arrays containing:
- *   - key (16 bytes)
- *   - blocks to encrypt (<=112 bytes)
- *   - IV/counter starting value (16 bytes)
- *
- * # Returns
- * Encrypted bytes
- * @param {Uint8Array[]} data
- * @returns {Uint8Array}
- */
-export function encrypt_block_js(data) {
-    const ptr0 = passArrayJsValueToWasm0(data, wasm.__wbindgen_malloc);
-    const len0 = WASM_VECTOR_LEN;
-    const ret = wasm.encrypt_block_js(ptr0, len0);
-    var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
-    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
-    return v2;
-}
-
-/**
- * JavaScript wrapper for decrypt_block
- *
- * # Arguments
- * * `data` - Vector of Uint8Arrays containing:
- *   - key (16 bytes)
- *   - blocks to decrypt (<=112 bytes)
- *   - IV/counter starting value (16 bytes)
- *
- * # Returns
- * Decrypted bytes
- * @param {Uint8Array[]} data
- * @returns {Uint8Array}
- */
-export function decrypt_block_js(data) {
-    const ptr0 = passArrayJsValueToWasm0(data, wasm.__wbindgen_malloc);
-    const len0 = WASM_VECTOR_LEN;
-    const ret = wasm.decrypt_block_js(ptr0, len0);
-    var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
-    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
-    return v2;
-}
-
-/**
- * JavaScript wrapper of the prove_ext function
- *
- * # Arguments
- * * `values` - Array of Uint8Arrays containing the sequence of values
- *
- * # Returns
- * Array of Uint8Arrays containing the extension proof components
- * @param {Uint8Array[]} values
- * @returns {Array<any>}
- */
-export function prove_ext_js(values) {
-    const ptr0 = passArrayJsValueToWasm0(values, wasm.__wbindgen_malloc);
-    const len0 = WASM_VECTOR_LEN;
-    const ret = wasm.prove_ext_js(ptr0, len0);
-    return ret;
-}
-
-/**
- * JavaScript wrapper of the accumulator function
- *
- * # Arguments
- * * `values` - Array of Uint8Arrays to accumulate
- *
- * # Returns
- * Accumulated value as bytes
- * @param {Uint8Array[]} values
- * @returns {Uint8Array}
- */
-export function acc_js(values) {
-    const ptr0 = passArrayJsValueToWasm0(values, wasm.__wbindgen_malloc);
-    const len0 = WASM_VECTOR_LEN;
-    const ret = wasm.acc_js(ptr0, len0);
-    var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
-    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
-    return v2;
-}
-
-/**
- * JavaScript wrapper of the prove function
- *
- * # Arguments
- * * `values` - Array of Uint8Arrays containing all values in the tree
- * * `indices` - Array of indices for values to include in proof
- *
- * # Returns
- * Array of arrays of Uint8Arrays containing the proof layers
- * @param {Uint8Array[]} values
- * @param {Array<any>} indices
- * @returns {Array<any>}
- */
-export function prove_js(values, indices) {
-    const ptr0 = passArrayJsValueToWasm0(values, wasm.__wbindgen_malloc);
-    const len0 = WASM_VECTOR_LEN;
-    const ret = wasm.prove_js(ptr0, len0, indices);
-    return ret;
 }
 
 const ArgumentCheckResultFinalization = (typeof FinalizationRegistry === 'undefined')

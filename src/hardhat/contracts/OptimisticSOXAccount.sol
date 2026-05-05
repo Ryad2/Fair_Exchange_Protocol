@@ -386,6 +386,8 @@ contract OptimisticSOXAccount is IOptimisticSOX {
         for (uint256 i = 0; i < _targets.length; i++) {
             _call(_targets[i], _values[i], _calldata[i]);
         }
+
+        _clearUserOpContext();
     }
 
     function supportsERC4337() external pure returns (bool) {

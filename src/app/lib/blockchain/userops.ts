@@ -470,6 +470,7 @@ export async function sendUserOperationV8(params: {
     signerPrivateKey: string;
     entryPoint: string;
     delegate: string;
+    value?: bigint;
     gas?: Partial<UserOpGasV8>;
     factoryData?: string;
     paymaster?: {
@@ -532,6 +533,10 @@ export async function sendUserOperationV8(params: {
         signature: "0x" as `0x${string}`,
     };
 
+    if (params.value !== undefined) {
+        userOpForHash.value = params.value;
+    }
+
     const computedUserOpHash = getUserOperationHash({
         chainId,
         entryPointAddress: params.entryPoint as `0x${string}`,
@@ -566,6 +571,10 @@ export async function sendUserOperationV8(params: {
         signature,
         eip7702Auth,
     };
+
+    if (params.value !== undefined) {
+        userOpForBundler.value = toBeHex(params.value);
+    }
     
     // Ajouter paymaster fields seulement si définis
     if (params.paymaster) {

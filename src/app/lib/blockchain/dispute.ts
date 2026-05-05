@@ -246,7 +246,8 @@ export async function getLatestChallengeResponse(contractAddr: string) {
     if (!isAddress(contractAddr)) return;
 
     let contract = new Contract(contractAddr, abi, PROVIDER);
-    return await contract.getLatestBuyerResponse();
+    const gateNum = await contract.chall();
+    return await contract.buyerResponses(gateNum);
 }
 
 /**
@@ -419,7 +420,7 @@ export async function submitCommitmentLeft(
     
     // Vérifier buyerResponses[gateNum] avant d'envoyer
     try {
-        const buyerResponse = await contract.getBuyerResponse(gateNum);
+        const buyerResponse = await contract.buyerResponses(gateNum);
         const buyerResponseHex = buyerResponse;
         console.log(`🔍 Vérification: curr_acc = ${currAccHex.slice(0, 20)}..., buyerResponses[${gateNum}] = ${buyerResponseHex.slice(0, 20)}...`);
         if (currAccHex.toLowerCase() === buyerResponseHex.toLowerCase()) {

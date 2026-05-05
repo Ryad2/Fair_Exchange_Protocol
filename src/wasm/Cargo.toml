@@ -45,3 +45,7 @@ path = "src/bin/compute_proofs_cli.rs"
 [[bin]]
 name = "performance_test_1gb"
 path = "src/bin/performance_test_1gb.rs"
+
+[[bin]]
+name = "hardcoded_sha256_dispute_cli"
+path = "src/bin/hardcoded_sha256_dispute_cli.rs"

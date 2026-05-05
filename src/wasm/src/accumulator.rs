@@ -112,14 +112,64 @@ pub fn acc_circuit<C: AccumulableCircuit>(circuit: &C) -> Vec<u8> {
 /// A 32-byte vector containing the accumulated hash of the ciphertext blocks
 /// Optimized to use fixed64 accumulator for better performance
 pub fn acc_ct(ct: &[u8], block_size: usize) -> Vec<u8> {
-    let blocks = split_ct_blocks(ct, block_size);
-    
-    // Use acc_fixed64 for better performance (all blocks are 64B)
     if block_size == 64 {
-        acc_fixed64(&blocks)
-    } else {
-        acc(&blocks)
+        return acc_ct_fixed64_direct(ct);
     }
+
+    let blocks = split_ct_blocks(ct, block_size);
+    acc(&blocks)
+}
+
+/// Computes h_ct for the protocol ciphertext layout without materializing
+/// `Vec<Vec<u8>>` blocks. Large files otherwise duplicate the full ciphertext
+/// just before the Merkle hashing step, which is what makes the WASM path hit
+/// its memory ceiling around 600 MiB.
+fn acc_ct_fixed64_direct(ct: &[u8]) -> Vec<u8> {
+    if ct.len() < 16 {
+        die("Ciphertext must include a 16-byte IV");
+    }
+
+    let data_len = ct.len() - 16;
+    let data_blocks = (data_len + 63) / 64;
+    let leaf_count = 1 + data_blocks;
+
+    if leaf_count == 1 {
+        return hash_block64(&ct[..16]).to_vec();
+    }
+
+    let mut layer = Vec::with_capacity(leaf_count);
+    layer.push(hash_block64(&ct[..16]));
+
+    let mut data_hashes: Vec<[u8; 32]> = (0..data_blocks)
+        .into_par_iter()
+        .map(|i| {
+            let start = 16 + i * 64;
+            let end = usize::min(start + 64, ct.len());
+            hash_block64(&ct[start..end])
+        })
+        .collect();
+    layer.append(&mut data_hashes);
+
+    while layer.len() > 1 {
+        let layer_ref = &layer;
+        let indices: Vec<usize> = (0..layer_ref.len()).step_by(2).collect();
+        let next: Vec<[u8; 32]> = indices
+            .into_par_iter()
+            .map(|i| {
+                if i + 1 < layer_ref.len() {
+                    let mut hasher = Keccak256::new();
+                    hasher.update(&layer_ref[i]);
+                    hasher.update(&layer_ref[i + 1]);
+                    hasher.finalize().into()
+                } else {
+                    layer_ref[i]
+                }
+            })
+            .collect();
+        layer = next;
+    }
+
+    layer[0].to_vec()
 }
 
 /// Generates a proof for a subset of values in a sequence. Inspired by
@@ -390,6 +440,22 @@ mod tests {
 
         let root = acc(&values);
         assert_eq!(expected_root, root);
+    }
+
+    #[test]
+    pub fn test_acc_ct_direct_matches_materialized_blocks() {
+        for data_len in [0usize, 1, 63, 64, 65, 127, 128, 129, 4096, 8193] {
+            let mut ct = vec![0u8; 16 + data_len];
+            for (i, byte) in ct.iter_mut().enumerate() {
+                *byte = (i & 0xff) as u8;
+            }
+
+            let materialized_blocks = crate::utils::split_ct_blocks(&ct, 64);
+            let expected = acc_fixed64(&materialized_blocks);
+            let direct = acc_ct(&ct, 64);
+
+            assert_eq!(expected, direct, "mismatch for data_len={data_len}");
+        }
     }
 
     #[test]
