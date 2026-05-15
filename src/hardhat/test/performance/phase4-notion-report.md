@@ -2,499 +2,603 @@
 
 ## Objectif
 
-Cette phase cloture les mesures experimentales demandees pour les semaines 11 a 13. Le but n'est pas seulement de donner des chiffres de gas, mais de montrer clairement comment la version actuelle ameliore la version initiale du protocole implemente.
+Cette phase a pour objectif de produire des mesures experimentales claires sur les couts en gas, puis de comparer trois niveaux : la version initiale, la version monolithique actuelle issue de la Phase 3, et la version specialisee finale.
 
-Dans ce rapport, la reference est toujours appelee **version initiale**. Elle correspond au depot historique execute localement dans les memes conditions de test. Les comparaisons ci-dessous ne reposent donc pas sur des chiffres repris d'un ancien rapport, mais sur une execution locale de la version initiale.
+Ce rapport remplace les versions precedentes de la Phase 4. La correction principale est une clarification stricte des scopes de mesure. Dans les versions precedentes, certains tableaux melangeaient couts fixes, couts marginaux, dispute apres trigger, temps off-chain et gas on-chain. Cela rendait plusieurs totaux difficiles a verifier. Ici, chaque tableau est construit pour que les totaux soient recomposables depuis les colonnes visibles.
 
-La version monolithique intermediaire, qui avait ete produite au debut de la Phase 3 pour valider rapidement les variantes, n'est plus utilisee comme reference de comparaison. Elle est mentionnee uniquement pour expliquer une decision d'architecture : ajouter toutes les variantes dans un seul contrat augmente le bytecode et ne permet pas de reduire le gas. Cette piste a donc ete abandonnee.
+Dans ce rapport :
 
-## 0. Clarifications apres le dernier feedback
+- **version initiale** designe l'implementation historique de Hana et les chiffres de reference associes;
+- **version monolithique actuelle** designe le contrat courant issu de la Phase 3, mesure dans le meme scope que la version initiale, avant l'utilisation des clones et contrats specialises;
+- **version specialisee finale** designe l'architecture finale avec factory, clones minimaux, contrats specialises et chemin hardcoded strict.
 
-Cette section repond explicitement aux ambiguites relevees dans le dernier retour.
+## 0. Regles de lecture des mesures
 
-### 0.1 Hardcoded `desc = SHA256` et moment de determination
+### 0.1 Mapping entre fonctions Solidity et protocole
 
-Le mode hardcoded `desc = SHA256` est determine au moment du precontrat/deploiement du contrat optimiste hardcoded. Les donnees suivantes sont fixees dans `OptimisticSOXAccountHardcodedSHA256` :
+| Nom dans l'implementation | Etape du protocole | Ce que la mesure inclut |
+|---|---:|---|
+| `sendPayment` | Step 2 | Paiement de `B` |
+| `sendKey` | Step 3 | Envoi de la cle par `V` |
+| `sendBuyerDisputeSponsorFee*` | Step 4/5 cote `SB` | Enregistrement/depot de `SB`; dans le cas `SB=B`, fusion logique avec le buyer |
+| `triggerDispute` / `sendVendorDisputeSponsorFee*` | Step 6 | Enregistrement/depot de `SV` et deploiement de la dispute |
+| `respondChallenge` | Step 7b | Publication on-chain d'un `hpre` par `B` |
+| `giveOpinion` | Step 7c | Reponse on-chain de `V` au `hpre` |
+| `submitCommitment` / `submitCommitmentLeft` | Step 8 | Verification on-chain de la gate contestee et des preuves |
+| `completeDispute` / `cancelDispute` | Step 9 | Finalisation de la dispute |
+
+Point important : dans plusieurs tests, la transaction appelee `triggerDispute` inclut aussi le dernier depot de sponsor de dispute et le deploiement du contrat de dispute. Ce n'est donc pas seulement une petite transition d'etat.
+
+### 0.2 Scopes utilises dans le rapport
+
+| Scope | Definition | A ne pas confondre avec |
+|---|---|---|
+| Cout fixe d'infrastructure | Deploiement unique de la factory et/ou des implementations reutilisables | Cout par echange |
+| Cout marginal par echange | Cout d'un nouvel echange une fois l'infrastructure deployee | Cout du premier deploiement complet |
+| Chemin optimiste | Deploiement/creation du contrat optimiste + Step 2 + Step 3 + completion si pas de dispute | Dispute |
+| Dispute apres trigger | `respondChallenge` + `giveOpinion` + `submitCommitment` + `finalize` | `triggerDispute` |
+| Total complet avec dispute | Chemin optimiste avant dispute + trigger + dispute apres trigger | Cout marginal optimiste seul |
+| Temps off-chain | Temps CPU/local pour CLI, precontrat, generation `hpre`, preuves | Gas on-chain |
+
+### 0.3 Sources reproductibles
+
+| Source | Commande / test | Role dans le rapport |
+|---|---|---|
+| Reference initiale | chiffres de reference de l'implementation initiale | Baseline historique demandee par le professeur |
+| `HanaComparisonCurrent.test.ts` | mesure le repo courant dans le meme scope que la reference initiale | Montre que le chemin monolithique actuel n'est pas le chemin optimise final |
+| `SpecializedContractArchitecture.test.ts` | mesure bytecode, contrats directs, clones, hardcoded specialise | Mesure l'architecture finale |
+| `Phase3ExhaustiveAndGas.test.ts` | mesure les quatre scenarios de dispute 16 KiB sur le chemin monolithique actuel | Compare normal, self-sponsored, hardcoded, self-sponsored+hardcoded dans un meme contrat |
+| `SpecializedFinalSameScope.test.ts` | mesure la version specialisee finale aux memes tailles que 3.1 et 3.2 | Ferme la comparaison a taille et scope identiques |
+| `NativeHardcodedSHA256FullDispute1GB.test.ts` | mesure une dispute hardcoded stricte 16 KiB et 1 GiB | Valide le chemin final strict avec `gateBytes=0x` et `proof1=[]` |
+
+## 1. Changements depuis la version initiale
+
+### 1.1 Point de depart
+
+La version initiale etait fonctionnelle et couvrait deja :
+
+- la generation du precontrat;
+- le chiffrement AES-CTR;
+- la description `desc = SHA256`;
+- les engagements `h_ct`, `h_circuit` et `commitment`;
+- la partie optimiste;
+- la dispute;
+- le chemin ERC-4337/UserOperation;
+- un deploiement de contrat optimiste par echange;
+- un deploiement de contrat de dispute lorsqu'une dispute est declenchee.
+
+Sa limite principale etait le cout marginal : un echange payait un deploiement complet de contrat, meme lorsque le cas concret etait connu a l'avance.
+
+### 1.2 Reorientation apres les retours du professeur
+
+Les retours du professeur ont conduit a recentrer l'implementation sur les cas qui changent reellement le cout :
+
+| Point protocolaire | Decision d'implementation |
+|---|---|
+| `no_S_deposit` | Mode explicite sans depot initial de `S` dans la partie optimiste |
+| `S=B` | Cas determine au precontrat, fusion logique de Step 1+2 |
+| `S=V` | Cas determine au precontrat |
+| `SB=B` | Cas determine apres Step 4, fusion logique de Step 4+5 |
+| `SV=V` | Cas determine apres Step 4 |
+| `desc = SHA256` hardcoded | Circuit determine par `len(x)`, suppression de `h_circuit/pi_1` dans Step 8 |
+
+La premiere implementation de Phase 3 avait ajoute beaucoup de logique dans un contrat monolithique. Elle validait les chemins fonctionnels, mais elle augmentait le bytecode et le gas. Cette piste a donc ete abandonnee comme architecture finale.
+
+### 1.3 Passage concret de la version monolithique a la version specialisee finale
+
+La transition entre la fin de Phase 3 et la version specialisee finale n'est pas seulement une nouvelle mesure de gas. C'est une restructuration de l'implementation pour retirer du contrat les choix qui peuvent etre faits avant le deploiement.
+
+| Element fin Phase 3 monolithique | Changement implemente en Phase 4 | Effet recherche |
+|---|---|---|
+| Un contrat optimiste monolithique contenait plusieurs branches de modes | Separation en contrats specialises et clones minimaux | Moins de bytecode et cout marginal reduit par echange |
+| Les cas `no_S_deposit`, `S=B` et `S=V` etaient geres comme variantes internes | Creation de chemins optimistes separes par mode | Le mode est fixe au precontrat au lieu d'etre porte par un contrat couteau suisse |
+| La logique de dispute restait mesuree principalement dans le chemin monolithique | Ajout de chemins de dispute specialises : normal, self-sponsored, hardcoded SHA256 | Comparaison propre entre nombre d'iterations, verification de gate et cout de trigger |
+| Le cas hardcoded SHA256 etait d'abord une optimisation locale faible | Creation d'un chemin strict avec `gateBytes=0x`, `proof1=[]` et reconstruction on-chain de la gate | Le contrat ne verifie plus `pi_1`; il reconstruit lui-meme la structure SHA256 attendue |
+| Les mesures melangeaient parfois cout fixe, cout marginal et dispute | Separation explicite des scopes : infrastructure, marginal par echange, dispute apres trigger, total complet | Les chiffres deviennent recomposables et comparables a la version initiale |
+| Le chemin gros fichier dependait fortement du WASM/browser | Validation du chemin natif CLI pour 1 GiB et dispute hardcoded stricte | Les grandes tailles deviennent mesurables sans bloquer sur la memoire WASM |
+
+En resume, la version specialisee finale conserve la logique fonctionnelle validee en Phase 3, mais elle remplace l'approche monolithique par une architecture specialisee. Le but n'est pas d'ajouter plus de cas dans un seul contrat, mais de deployer le minimum necessaire pour le cas choisi.
+
+### 1.4 Architecture finale
+
+L'architecture actuelle separe les modes au lieu de garder un contrat couteau suisse.
+
+| Composant | Role |
+|---|---|
+| Frontend/backend | Determine le mode au precontrat et prepare les arguments |
+| `SOXFactory` | Cree le bon clone optimiste |
+| `OptimisticSOXClone*` | Contrats minimaux par mode optimiste |
+| `OptimisticSOXAccountHardcodedSHA256` | Contrat optimiste direct pour `desc = SHA256` hardcoded |
+| `DisputeSOXAccountNormal` | Dispute normale |
+| `DisputeSOXAccountSelfSponsored` | Dispute avec `SB=B` et `SV=V` |
+| `DisputeSOXAccountHardcodedSHA256` | Dispute hardcoded stricte |
+| `HardcodedSha256CircuitLib` | Reconstruction on-chain de la gate attendue sans `pi_1` |
+
+## 2. Partie optimiste
+
+### 2.1 Reference initiale
+
+Ces chiffres sont le scope historique cite pour la partie optimiste complete.
+
+| Mesure initiale | Gas |
+|---|---:|
+| Deploiement `OptimisticSOXAccount` | `2,077,362` |
+| Execution optimiste | `222,839` |
+| Total optimiste initial | `2,300,201` |
+
+Formule :
+
+```text
+2,077,362 + 222,839 = 2,300,201 gas
+```
+
+### 2.2 Version monolithique actuelle mesuree dans le meme scope
+
+Ce tableau repond a la question : que se passe-t-il si l'on mesure le contrat monolithique actuel du repo, sans utiliser l'architecture finale par clones ?
+
+| Mesure meme scope | Version initiale | Version monolithique actuelle | Ecart |
+|---|---:|---:|---:|
+| Deploiement optimistic | `2,077,362` | `2,813,862` | `+736,500` (`+35.45%`) |
+| Execution optimiste | `222,839` | `232,920` | `+10,081` (`+4.52%`) |
+| Total optimiste | `2,300,201` | `3,046,782` | `+746,581` (`+32.46%`) |
+
+Conclusion : le chemin monolithique actuel n'est pas l'optimisation finale. Il est plus cher que la reference initiale. C'est precisement pour cette raison que l'architecture finale a ete deplacee vers des contrats specialises et des clones minimaux.
+
+### 2.3 Couts fixes de l'architecture clone
+
+Ces couts sont payes une fois pour deployer l'infrastructure reutilisable. Ils ne sont pas inclus dans le cout marginal par echange.
+
+| Infrastructure reutilisable | Gas |
+|---|---:|
+| `SOXFactory` seule | `561,126` |
+| Implementation `OptimisticSOXCloneNormal` | `1,492,453` |
+| Implementation `OptimisticSOXCloneNoSDeposit` | `1,482,093` |
+| Implementation `OptimisticSOXCloneSponsorIsBuyer` | `1,529,267` |
+| Implementation `OptimisticSOXCloneSponsorIsVendor` | `1,519,062` |
+| Total infrastructure optimiste clone | `6,584,001` |
+
+Formule :
+
+```text
+561,126 + 1,492,453 + 1,482,093 + 1,529,267 + 1,519,062
+= 6,584,001 gas
+```
+
+Lecture : cette infrastructure doit etre amortie sur plusieurs echanges. Les chiffres de la section suivante sont les couts marginaux une fois cette infrastructure deployee.
+
+### 2.4 Couts marginaux par echange avec clones
+
+| Mode actuel | Creation clone | Payment | Key | Complete | Total marginal | Gain vs total initial `2,300,201` |
+|---|---:|---:|---:|---:|---:|---:|
+| `no_S_deposit` | `299,694` | `82,272` | `61,363` | `57,391` | `500,720` | `-1,799,481` (`-78.23%`) |
+| `S=B` | `393,412` | `0` | `61,363` | `61,574` | `516,349` | `-1,783,852` (`-77.55%`) |
+| `S=V` | `328,926` | `104,446` | `61,363` | `61,574` | `556,309` | `-1,743,892` (`-75.81%`) |
+
+Formules :
+
+```text
+no_S_deposit: 299,694 + 82,272 + 61,363 + 57,391 = 500,720
+S=B:          393,412 + 0      + 61,363 + 61,574 = 516,349
+S=V:          328,926 + 104,446 + 61,363 + 61,574 = 556,309
+```
+
+Conclusion : les gains de `500k-556k gas` sont des gains marginaux par echange. Ils ne doivent pas etre presentes comme le cout du premier deploiement complet avec toute l'infrastructure.
+
+### 2.5 Contrats directs specialises sans clones
+
+Ces chiffres sont moins bons que les clones, mais ils montrent que la separation des contrats reduit deja le cout meme sans proxy minimal.
+
+| Mode direct specialise | Deploy direct | Payment | Key | Complete | Total direct | Gain vs total initial `2,300,201` |
+|---|---:|---:|---:|---:|---:|---:|
+| `no_S_deposit` direct | `1,531,226` | `79,606` | `58,694` | `54,725` | `1,724,251` | `-575,950` (`-25.04%`) |
+| `S=B` direct | `1,633,698` | `0` | `58,694` | `58,908` | `1,751,300` | `-548,901` (`-23.86%`) |
+| `S=V` direct | `1,567,907` | `101,780` | `58,694` | `58,908` | `1,787,289` | `-512,912` (`-22.30%`) |
+
+Les clones sont donc l'architecture marginale la plus interessante.
+
+## 3. Partie dispute monolithique actuelle
+
+### 3.1 Reference initiale et version monolithique actuelle
+
+Ces mesures reprennent le meme scope que la reference initiale sur un fichier de `4 MiB`.
+
+| Mesure dispute | Version initiale | Version monolithique actuelle | Ecart |
+|---|---:|---:|---:|
+| Deploiement `DisputeSOXAccount` | `4,651,201` | `5,779,296` | `+1,128,095` (`+24.25%`) |
+| Exchange + dispute triggering | `4,977,003` | `6,058,245` | `+1,081,242` (`+21.72%`) |
+| Optimistic deploy + dispute init total | `7,054,365` | `8,872,119` | `+1,817,754` (`+25.77%`) |
+| One challenge round average | `82,624` | `103,282` | `+20,658` (`+25.00%`) |
+| `submitCommitment`, gate SHA256 4 MiB | `320,000` | `379,686` | `+59,686` (`+18.65%`) |
+
+Conclusion : comme pour la partie optimiste, le chemin monolithique actuel n'est pas le chemin optimise final. Il sert surtout de point de comparaison de meme scope avec la version initiale.
+
+### 3.2 Diagnostic monolithique actuel : quatre scenarios de dispute 16 KiB
+
+Cette table ne mesure ni la version initiale, ni les clones optimistes, ni le chemin hardcoded strict final. Elle mesure le contrat monolithique actuel issu de la Phase 3, avec le meme contrat `OptimisticSOXAccount` et le meme `DisputeDeployer`, afin d'isoler l'effet des variantes de dispute dans un environnement identique.
+
+La taille `16 KiB` est volontaire : elle permet d'executer une dispute complete avec vraies preuves jusqu'a `End` pour les quatre cas retenus, de maniere rapide et reproductible. Cette table sert donc a comparer les variantes entre elles, pas a comparer directement la version initiale et la version finale.
+
+Le chemin specialise final est mesure a scope comparable en section 3.5. Le chemin hardcoded strict end-to-end avec `gateBytes=0x` et `proof1=[]` est ensuite mesure plus largement en section 5 sur `16 KiB` et `1 GiB`.
+
+| Cas dispute 16 KiB | Configure | SB step | Trigger dispute | Respond challenge | Give opinion | Submit commitment | Finalize | Total complet | Iterations `Step 7+8` |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| normal, sponsors externes | `0` | `115,588` | `5,779,296` | `730,818` | `765,456` | `877,792` | `76,462` | `8,345,412` | `2` |
+| self-sponsored `SB=B/SV=V` | `0` | `106,954` | `5,781,134` | `365,409` | `382,728` | `455,753` | `73,962` | `7,165,940` | `1` |
+| hardcoded SHA256 | `81,897` | `115,565` | `5,787,348` | `730,818` | `765,456` | `752,660` | `76,462` | `8,310,206` | `2` |
+| self-sponsored + hardcoded SHA256 | `81,897` | `106,954` | `5,789,186` | `365,409` | `382,728` | `393,199` | `73,962` | `7,193,335` | `1` |
+
+Verification des totaux :
+
+```text
+normal:
+0 + 115,588 + 5,779,296 + 730,818 + 765,456 + 877,792 + 76,462
+= 8,345,412
+
+self-sponsored:
+0 + 106,954 + 5,781,134 + 365,409 + 382,728 + 455,753 + 73,962
+= 7,165,940
+
+hardcoded:
+81,897 + 115,565 + 5,787,348 + 730,818 + 765,456 + 752,660 + 76,462
+= 8,310,206
+
+self-sponsored + hardcoded:
+81,897 + 106,954 + 5,789,186 + 365,409 + 382,728 + 393,199 + 73,962
+= 7,193,335
+```
+
+### 3.3 Lecture correcte du self-sponsoring
+
+Le self-sponsoring reduit bien le nombre d'iterations `Step 7+8`. Il ne divise pas le total complet par deux parce que `triggerDispute` est un cout fixe dominant d'environ `5.79M gas`.
+
+| Comparaison | Partie variable apres trigger | Ecart |
+|---|---:|---:|
+| normal, sponsors externes | `2,450,528` | reference |
+| self-sponsored `SB=B/SV=V` | `1,277,852` | `-1,172,676` (`-47.85%`) |
+| hardcoded SHA256 | `2,325,396` | `-125,132` (`-5.11%`) |
+| self-sponsored + hardcoded SHA256 | `1,215,298` | `-1,235,230` (`-50.41%`) |
+
+Formule importante :
+
+```text
+hardcoded externe, apres trigger:
+730,818 + 765,456 + 752,660 + 76,462 = 2,325,396
+
+self-sponsored + hardcoded, apres trigger:
+365,409 + 382,728 + 393,199 + 73,962 = 1,215,298
+
+gain:
+1,215,298 - 2,325,396 = -1,110,098 gas (-47.74%)
+```
+
+Conclusion : l'effet attendu existe bien. La confusion precedente venait du fait que le tableau masquait `configure` et `SB step`, ce qui rendait le total non recomposable.
+
+### 3.4 Meme scope `4 MiB` avec la version specialisee finale
+
+Cette table reprend le meme scope que 3.1, mais remplace le contrat monolithique par le chemin specialise final normal : `SOXFactory` + clone normal + `DisputeSOXAccountNormal`. Les couts fixes d'infrastructure de la factory et des implementations ne sont pas inclus ici; on mesure le cout marginal par echange, comme dans la section 2.4.
+
+| Mesure dispute `4 MiB` | Version initiale | Monolithique actuelle | Specialisee finale | Lecture |
+|---|---:|---:|---:|---|
+| Creation/deploiement optimiste | `2,077,362` | `2,813,862` | `348,946` | clone normal marginal |
+| Deploiement dispute / trigger | `4,651,201` | `5,779,296` | `4,862,324` | `-15.87%` vs monolithique, `+4.54%` vs initiale |
+| Exchange + dispute triggering | `4,977,003` | `6,058,245` | `5,146,215` | `-15.05%` vs monolithique, `+3.40%` vs initiale |
+| Optimistic deploy + dispute init total | `7,054,365` | `8,872,119` | `5,495,161` | `-38.06%` vs monolithique, `-22.10%` vs initiale |
+| One challenge round average | `82,624` | `103,282` | `103,128` | pratiquement identique au monolithique |
+| `submitCommitment`, gate SHA256 `4 MiB` | `320,000` | `379,686` | `382,181` | pas optimise dans le chemin generique |
+
+Formule principale :
+
+```text
+specialisee finale, optimistic deploy + dispute init total:
+348,946 + 5,146,215 = 5,495,161 gas
+
+gain vs monolithique actuelle:
+5,495,161 - 8,872,119 = -3,376,958 gas (-38.06%)
+
+gain vs version initiale:
+5,495,161 - 7,054,365 = -1,559,204 gas (-22.10%)
+```
+
+Conclusion : la version specialisee finale est bien meilleure sur le cout global de mise en dispute grace au clone. En revanche, le cout local d'un round et d'un `submitCommitment` generique reste proche du monolithique, car l'optimisation principale porte ici sur l'architecture de deploiement, pas encore sur le verificateur generique Step 8.
+
+### 3.5 Meme scope `16 KiB` avec la version specialisee finale
+
+Cette table reprend le meme scope que 3.2 : elle exclut la creation du contrat optimiste, le paiement et l'envoi de cle, pour comparer uniquement la dispute a partir de `SB step`. Cela donne une comparaison directe avec le diagnostic monolithique `16 KiB`.
+
+| Cas dispute `16 KiB` | Monolithique actuelle | Specialisee finale meme scope | Gain |
+|---|---:|---:|---:|
+| normal, sponsors externes | `8,345,412` | `7,432,623` | `-912,789` (`-10.94%`) |
+| self-sponsored `SB=B/SV=V` | `7,165,940` | `5,946,433` | `-1,219,507` (`-17.02%`) |
+| hardcoded SHA256 | `8,310,206` | `5,195,034` | `-3,115,172` (`-37.49%`) |
+| self-sponsored + hardcoded SHA256 | `7,193,335` | `4,042,185` | `-3,151,150` (`-43.81%`) |
+
+Details comptables de la version specialisee finale :
+
+| Cas dispute `16 KiB` specialise | SB step | Trigger dispute | Respond challenge | Give opinion | Submit commitment | Finalize | Total comparable |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| normal, sponsors externes | `118,094` | `4,862,324` | `729,630` | `763,872` | `880,026` | `78,677` | `7,432,623` |
+| self-sponsored `SB=B/SV=V` | `109,415` | `4,593,958` | `364,815` | `381,986` | `420,060` | `76,199` | `5,946,433` |
+| hardcoded SHA256 | `115,600` | `2,719,333` | `729,630` | `763,872` | `790,225` | `76,374` | `5,195,034` |
+| self-sponsored + hardcoded SHA256 | `106,954` | `2,721,171` | `364,815` | `381,936` | `393,435` | `73,874` | `4,042,185` |
+
+Verification des totaux :
+
+```text
+normal specialise:
+118,094 + 4,862,324 + 729,630 + 763,872 + 880,026 + 78,677
+= 7,432,623
+
+self-sponsored specialise:
+109,415 + 4,593,958 + 364,815 + 381,986 + 420,060 + 76,199
+= 5,946,433
+
+hardcoded specialise:
+115,600 + 2,719,333 + 729,630 + 763,872 + 790,225 + 76,374
+= 5,195,034
+
+self-sponsored + hardcoded specialise:
+106,954 + 2,721,171 + 364,815 + 381,936 + 393,435 + 73,874
+= 4,042,185
+```
+
+Pour transparence, le meme test a aussi mesure le scope plus large incluant creation du contrat optimiste, paiement et cle :
+
+| Cas specialise `16 KiB` | Creation compte | Payment | Key | Total large |
+|---|---:|---:|---:|---:|
+| normal, sponsors externes | `348,946` | `104,446` | `61,363` | `7,947,378` |
+| self-sponsored `SB=B/SV=V` | `348,946` | `104,446` | `61,363` | `6,461,188` |
+| hardcoded SHA256 | `2,668,276` | `104,441` | `58,908` | `8,026,659` |
+| self-sponsored + hardcoded SHA256 | `2,668,264` | `104,441` | `58,908` | `6,873,798` |
+
+Conclusion : a taille et scope identiques, la version specialisee finale reduit bien les quatre scenarios. Le gain est modere pour le cas normal, mais devient tres important quand le chemin hardcoded evite le deployer monolithique et la configuration separee.
+
+## 4. Hardcoded `desc = SHA256`
+
+### 4.1 Moment de determination
+
+Le cas hardcoded `desc = SHA256` est determine au moment du precontrat/deploiement du contrat optimiste hardcoded. Il n'est pas choisi pendant la dispute.
 
 | Donnee | Statut |
 |---|---|
-| `hardcodedSha256Circuit` | constante `true` |
+| `hardcodedSha256Circuit` | fixe a `true` |
 | `descriptionHash` | immutable |
 | `plaintextLength` | immutable |
 | `ciphertextIv` | immutable |
 | `numBlocks` | verifie contre `plaintextLength` |
-| `numGates` | verifie contre `plaintextLength` et `numBlocks` |
+| `numGates` | verifie contre `plaintextLength` |
 
-Ainsi, le cas hardcoded n'est pas choisi pendant la dispute. Il est deja fixe avant paiement/cle/dispute.
+### 4.2 Ce que le smart contract determine dans Step 8
 
-### 0.2 Ce que le contrat determine dans `Step 8`
+Dans le chemin hardcoded strict, le test appelle `submitCommitmentLeft` avec :
 
-Apres patch, le contrat de dispute hardcoded surcharge `submitCommitment` et `submitCommitmentLeft`. En mode hardcoded, les parametres legacy `_gateBytes` et `_proof1` sont ignores. Le test end-to-end appelle maintenant `submitCommitmentLeft` avec :
-
-| Parametre | Valeur dans le test hardcoded strict |
+| Parametre | Valeur |
 |---|---|
 | `_gateBytes` | `0x` |
 | `_proof1` | `[]` |
 
-Le contrat reconstruit lui-meme la gate `g_i` avec `HardcodedSha256CircuitLib`, a partir de `i`, `|x|`, `numBlocks`, `descriptionHash` et `ciphertextIv`. Il n'utilise donc plus une gate fournie par `V`.
+Le contrat reconstruit lui-meme la gate `g_i` avec `HardcodedSha256CircuitLib`. Il utilise `i`, `len(x)`, `numBlocks`, `descriptionHash` et `ciphertextIv`. `V` ne fournit donc plus la description de la gate ni la preuve `pi_1`.
 
-Precision importante : `V` fournit encore les valeurs temoins necessaires a l'evaluation locale de la gate contestee. Ces valeurs ne sont pas acceptees librement : le contrat verifie leur appartenance a `h_ct` ou a `hpre` via les preuves Merkle, puis recalcule le resultat de la gate on-chain. Autrement dit, le contrat determine la structure de la gate et les indices attendus; les valeurs sont des temoins authentifies, pas une description de circuit fournie par `V`.
+`V` fournit encore les valeurs temoins necessaires a l'evaluation de la gate. Ces valeurs sont verifiees contre `h_ct` ou `hpre` via preuves Merkle. Elles ne remplacent pas la description du circuit.
 
-### 0.3 Ce que mesurent les chiffres de gas
+### 4.3 Taille bytecode apres specialisation
 
-Les chiffres ci-dessous sont separes par scope pour eviter toute confusion.
+| Contrat / librairie | Bytecode deploye | Statut mainnet |
+|---|---:|---|
+| `OptimisticSOXAccountHardcodedSHA256` | `10,713 bytes` | sous `24,576` |
+| `DisputeSOXAccountHardcodedSHA256` | `11,194 bytes` | sous `24,576` |
+| `DisputeDeployerHardcodedSHA256` | `13,644 bytes` | sous `24,576` |
+| `HardcodedSha256CircuitLib` | `16,429 bytes` | sous `24,576` |
 
-| Nom du chiffre | Ce que cela mesure | Ce que cela ne mesure pas |
-|---|---|---|
-| Cout marginal optimiste par clone | creation du clone + appels optimistes utiles jusqu'a `Complete` | deploiement initial de la factory et des implementations |
-| Deploiement optimistic hardcoded | deploiement d'un contrat optimiste hardcoded direct | pas le cout marginal clone |
-| `triggerDispute` | transaction qui enregistre `SV`, transfere les depots et deploie la dispute | pas les rounds `respondChallenge/giveOpinion` |
-| `respondChallenge` | transaction on-chain de `B` pour publier un `hpre` | pas le temps off-chain pour calculer ce `hpre` |
-| `giveOpinion` | transaction on-chain de `V` pour accepter/refuser le `hpre` | pas un recalcul off-chain complet par `V` |
-| `submitCommitment` / `submitCommitmentLeft` | une execution on-chain de `Step 8` | pas toute la dispute |
-| Preuve `h_circuit / pi_1` | sous-composant de `Step 8` dans le circuit generique | pas le cout complet de `Step 8` |
-| Gate hardcoded | reconstruction/verif de la gate attendue sans `pi_1` | pas l'evaluation AES/SHA complete ni les preuves `h_ct/hpre` |
-| Precontrat CLI natif | generation off-chain du precontrat, chiffrement et engagements | pas les transactions on-chain |
+### 4.4 Effet local sur `submitCommitment`
 
-### 0.4 Chiffres actuels importants apres patch strict
+Cette table mesure uniquement Step 8, pas toute la dispute.
 
-Taille bytecode specialisee :
-
-| Contrat/librairie | Bytecode deploye |
-|---|---:|
-| `OptimisticSOXAccountHardcodedSHA256` | `10,713 bytes` |
-| `DisputeSOXAccountHardcodedSHA256` | `11,194 bytes` |
-| `DisputeDeployerHardcodedSHA256` | `13,644 bytes` |
-| `HardcodedSha256CircuitLib` | `16,429 bytes` |
-
-Tous ces elements hardcoded specialises sont donc sous la limite mainnet de `24,576 bytes`.
-
-Mesure hardcoded specialisee contre ancienne version monolithique intermediaire :
-
-| Mesure | Monolithique intermediaire | Hardcoded specialise actuel | Gain |
-|---|---:|---:|---:|
-| Runtime dispute hardcoded | `26,439 bytes` | `11,194 bytes` | `-15,245 bytes` |
-| Trigger dispute hardcoded | `5,767,448 gas` | `2,699,433 gas` | `-3,068,015 gas` |
-| Total deploy/trigger scope hardcoded | `8,921,668 gas` | `5,626,146 gas` | `-3,295,522 gas` |
-
-Benchmark end-to-end hardcoded strict, `16 KiB`, avec `gateBytes = 0x` et `proof1 = []` :
-
-| Mesure | Valeur |
-|---|---:|
-| `numBlocks` | `256` |
-| `numGates` | `517` |
-| rounds `Step 7` | `10` |
-| precontrat CLI natif | `25.90 ms` |
-| generation native dispute | `63.88 ms` |
-| total `hpre` natif | `44.44 ms` |
-| trigger dispute | `2,721,171 gas` |
-| `respondChallenge` total | `608,190 gas` |
-| `giveOpinion` total | `421,615 gas` |
-| `submitCommitmentLeft` sans gate/proof1 | `5,448,993 gas` |
-| finalize | `75,667 gas` |
-| total dispute apres trigger | `6,554,465 gas` |
-| total chemin optimistic + trigger + dispute | `12,213,999 gas` |
-
-Benchmark end-to-end hardcoded strict, `1 GiB`, avec `gateBytes = 0x` et `proof1 = []` :
-
-| Mesure | Valeur |
-|---|---:|
-| `numBlocks` | `16,777,216` |
-| `numGates` | `33,554,437` |
-| rounds `Step 7` | `26` |
-| precontrat CLI natif | `42.79 s` |
-| generation native dispute | `22.65 s` |
-| total `hpre` natif | `11.03 s` |
-| execution on-chain locale dispute | `0.43 s` |
-| trigger dispute | `2,721,171 gas` |
-| `respondChallenge` total | `1,581,282 gas` |
-| `giveOpinion` total | `1,095,903 gas` |
-| `submitCommitmentLeft` sans gate/proof1 | `5,577,706 gas` |
-| finalize | `75,667 gas` |
-| total dispute apres trigger | `8,330,558 gas` |
-| total chemin optimistic + trigger + dispute | `13,990,092 gas` |
-
-### 0.5 Lecture correcte du gain hardcoded
-
-Le gain hardcoded ne doit pas etre lu comme une reduction automatique de tout `Step 8`. Le hardcoded supprime precisement la verification de `pi_1` contre `h_circuit`. Sur un circuit `1 GiB`, cette sous-partie vaut environ `198,585 gas` en mode generique, contre environ `29,639` a `32,390 gas` pour reconstruire/verifier la gate hardcoded. Le gain local sur ce sous-composant est donc environ `166k` a `169k gas`.
-
-En revanche, `submitCommitmentLeft` complet contient aussi l'evaluation de la gate AES, la preuve `h_ct`, la verification `hpre`/`proof_ext` et la logique d'etat. C'est pour cela que le `submitCommitmentLeft` complet 1 GiB mesure `5,577,706 gas` : ce chiffre n'est pas seulement la suppression de `pi_1`, il couvre toute l'execution on-chain du `Step 8` final gauche.
-
-## 1. Changements effectues depuis la version initiale
-
-### 1.1 Point de depart : version initiale
-
-La version initiale etait deja fonctionnelle. Elle couvrait :
-
-- la generation du precontrat off-chain;
-- le chiffrement AES-CTR;
-- la description SHA256;
-- le circuit V2;
-- les engagements `h_ct`, `h_circuit` et commitment;
-- le contrat optimiste;
-- le contrat de dispute;
-- le chemin ERC-4337 / UserOperation;
-- le deploiement d'un contrat optimiste par echange;
-- le deploiement d'un contrat de dispute lorsqu'une dispute est declenchee.
-
-Sa limite principale etait architecturale : chaque echange payait un deploiement complet de contrat. Le cout marginal par echange etait donc eleve, meme lorsque le cas concret du protocole etait connu a l'avance.
-
-### 1.2 Decisions prises apres les retours du professeur
-
-Les retours recus ont conduit a recentrer l'implementation sur les cas qui changent vraiment le cout en gas.
-
-Decisions retenues :
-
-| Point protocolaire | Decision d'implementation |
-|---|---|
-| `Step 1 + Step 2` | fusion lorsque `S=B` |
-| `Step 4 + Step 5` | fusion lorsque `SB=B`, avec autorisation buyer si `SB` est externe |
-| `no_S_deposit` | mode explicite sans depot initial de `S` dans la partie optimiste |
-| `S=B` et `S=V` | cas determines des le precontrat |
-| `SB=B` et `SV=V` | cas determines apres `Step 4` |
-| `desc = SHA256` hardcoded | suppression de la preuve generique `pi_1` liee a `h_circuit` dans `Step 8` |
-
-### 1.3 Abandon de l'approche monolithique
-
-La premiere implementation des variantes avait ete faite dans un contrat unique. Elle validait les chemins fonctionnels, mais elle faisait payer a chaque echange la logique de tous les modes. C'etait contraire a l'objectif principal du projet : reduire le gas.
-
-Cette version intermediaire a donc servi a comprendre le probleme, mais elle n'est pas la version finale et elle n'est pas utilisee comme reference dans les tableaux comparatifs. La comparaison importante est :
-
-**version initiale executee localement vs version actuelle specialisee.**
-
-### 1.4 Architecture actuelle
-
-La version actuelle transforme l'architecture en separant les modes.
-
-Architecture actuelle :
-
-- le frontend/backend determine le mode exact au moment du precontrat;
-- `SOXFactory` cree le bon contrat par echange;
-- les variantes optimistes utilisent des contrats specialises;
-- les modes frequents utilisent des clones minimaux;
-- les deployers de dispute sont separes entre normal, self-sponsored et hardcoded SHA256;
-- le mode hardcoded SHA256 utilise un verifier specialise sans preuve `pi_1` pour `h_circuit`.
-
-Contrats optimistes specialises :
-
-| Contrat | Cas couvert |
-|---|---|
-| `OptimisticSOXAccountNormal` | cas normal |
-| `OptimisticSOXAccountNoSDeposit` | mode `no_S_deposit` |
-| `OptimisticSOXAccountSponsorIsBuyer` | mode `S=B` |
-| `OptimisticSOXAccountSponsorIsVendor` | mode `S=V` |
-| `OptimisticSOXAccountHardcodedSHA256` | circuit `desc = SHA256` hardcoded |
-| `OptimisticSOXClone*` | cout marginal reduit par clone minimal |
-
-Contrats de dispute specialises :
-
-| Contrat | Cas couvert |
-|---|---|
-| `DisputeSOXAccountNormal` | dispute normale |
-| `DisputeSOXAccountSelfSponsored` | `SB=B` et `SV=V` |
-| `DisputeSOXAccountHardcodedSHA256` | dispute avec circuit SHA256 hardcoded |
-
-### 1.5 Optimisation off-chain pour gros fichiers
-
-Un probleme independant du gas est apparu lors des tests avec de gros fichiers. Le binding WASM direct echouait autour de `640 MiB` avec `RuntimeError: unreachable`. La cause etait la pression memoire : le fichier, le ciphertext, le circuit, `circuit_bytes` et les blocs materialises du ciphertext etaient gardes simultanement en memoire.
-
-Patch effectue :
-
-- calcul de `h_ct` directement sur des slices du ciphertext;
-- suppression de la materialisation complete `Vec<Vec<u8>>` pour les blocs de ciphertext;
-- serialization de `circuit_bytes` apres les accumulateurs pour reduire le pic memoire;
-- test de non-regression prouvant que le nouveau `h_ct` direct donne la meme racine que l'ancien chemin;
-- clarification : pour les gros fichiers, le chemin correct est le CLI Rust natif, pas le WASM direct.
-
-## 2. Methodologie de mesure
-
-### 2.1 Reference experimentale
-
-Reference : version initiale executee localement.
-
-Version actuelle : depot courant avec architecture specialisee, clones minimaux, disputes specialisees et optimisation off-chain.
-
-Les tests ont ete executes avec Hardhat dans Docker pour les mesures gas, et avec le CLI Rust natif pour les gros fichiers.
-
-### 2.2 Suites validees
-
-| Suite | Resultat |
-|---|---:|
-| Version initiale executee localement | `1 passing` |
-| Version actuelle, benchmark meme scope + architecture + Phase 3 + 1 GiB | `19 passing` |
-| Suite Phase 3 specialisee complete | `25 passing` |
-| Test Rust `h_ct` direct vs ancien `h_ct` materialise | `1 passing` |
-
-## 3. Vue globale des gains
-
-Cette table resume les gains principaux de la version actuelle par rapport a la version initiale.
-
-| Axe | Version initiale | Version actuelle | Gain principal |
-|---|---:|---:|---:|
-| Cout marginal optimiste normal | `2,372,052` | environ `2,359,769` | leger gain, surtout deploy |
-| Cout marginal `no_S_deposit` | non disponible | `500,720` | `-78.89%` vs total optimiste initial |
-| Cout marginal `S=B` | non disponible | `516,349` | `-78.23%` vs total optimiste initial |
-| Cout marginal `S=V` | non disponible | `556,309` | `-76.55%` vs total optimiste initial |
-| Dispute self-sponsored | non disponible dans la version initiale | `7,165,940` | suppression d'une iteration `Step 7+8` |
-| Hardcoded SHA256 1 GiB equivalent | preuve `h_circuit` `198,585` | gate hardcoded `29,639` a `32,390` | environ `-166k` a `-169k` gas |
-| Precontrat 900 MiB | `40.23 s` | `22.85 s` | `-43.2%` temps |
-| Precontrat 1 GiB | echoue | passe | support 1 GiB |
-
-Le point central est que la version actuelle ne se contente pas de modifier quelques fonctions. Elle change le cout marginal du protocole : au lieu de redeployer un gros contrat par echange, elle deploie une infrastructure reutilisable puis cree des clones minimaux par echange.
-
-### 3.1 Lecture importante du gain hardcoded sur grands fichiers
-
-Le gain hardcoded SHA256 ne doit pas etre lu uniquement sur le total d'une dispute 16 KiB. Sur ce petit scenario, le total est domine par `triggerDispute`, donc l'economie de `Step 8` est diluee dans le total. C'est pour cela que le gain global apparait faible dans la dispute complete.
-
-Le vrai effet du hardcoded apparait quand on regarde la partie qu'il optimise : la verification de l'appartenance au circuit dans `Step 8`. Dans le circuit generique, cette verification demande une preuve `pi_1` contre `h_circuit`. Dans le mode hardcoded SHA256, le circuit est determine par `|x|`, donc cette preuve disparait.
-
-Sur petits fichiers, cela donne deja un gain local :
-
-| Scenario | Normal `submitCommitment` | Hardcoded `submitCommitment` | Gain local Step 8 |
-|---|---:|---:|---:|
-| Dispute 16 KiB | `463,532` | `400,990` | `-62,542` |
-| Dispute complete 16 KiB, cumul des `submitCommitment` | `877,768` | `752,684` | `-125,084` |
-
-Sur grands fichiers, le gain devient plus important parce que la profondeur de la preuve `h_circuit` augmente :
-
-| Taille equivalente | Preuve normale `h_circuit / pi_1` | Verification hardcoded | Gain |
-|---|---:|---:|---:|
-| 900 MiB | `192,267` | `29,639` a `32,390` | `159,877` a `162,628` |
-| 1 GiB | `198,585` | `29,639` a `32,390` | `166,195` a `168,946` |
-
-Conclusion : le hardcoded SHA256 n'est pas une optimisation globale de toute la dispute. C'est une optimisation ciblee de `Step 8`. Son effet est peu visible sur le total d'une petite dispute, mais il devient significatif pour les grands circuits, exactement parce qu'il supprime `pi_1` et la verification generique de `h_circuit`.
-
-## 4. Partie optimiste : version initiale vs version actuelle
-
-### 4.1 Reference initiale mesuree localement
-
-| Mesure version initiale | Gas |
-|---|---:|
-| Deploiement `OptimisticSOXAccount` | `2,144,301` |
-| Execution optimiste | `227,751` |
-| Total optimiste par echange | `2,372,052` |
-
-Ce total correspond au cout marginal par echange dans la version initiale : un contrat complet est deploye pour chaque echange, puis les appels optimistes sont executes.
-
-### 4.2 Version actuelle : mode normal specialise
-
-| Mesure actuelle | Gas |
-|---|---:|
-| Deploiement optimistic normal specialise | `2,126,849` |
-| Execution optimiste meme scope | `232,920` |
-| Total optimiste normal specialise | `2,359,769` |
-
-Comparaison directe :
-
-| Cas | Version initiale | Version actuelle | Ecart |
-|---|---:|---:|---:|
-| Optimistic deploy normal | `2,144,301` | `2,126,849` | `-17,452` (`-0.81%`) |
-| Total optimiste normal | `2,372,052` | `2,359,769` | `-12,283` (`-0.52%`) |
-
-Interpretation : le cas normal reste proche de la version initiale, car il conserve la logique complete. Le gain majeur vient des nouveaux modes specialises.
-
-### 4.3 Version actuelle : cout marginal par clone
-
-Ces chiffres sont les couts par nouvel echange lorsque la factory et les implementations ont deja ete deployees une fois. Ils remplacent donc le cout marginal `2,372,052 gas` de la version initiale pour les modes correspondants.
-
-| Mode actuel | Creation clone | Execution incluse | Total par echange | Gain vs version initiale |
-|---|---:|---|---:|---:|
-| `no_S_deposit` | `299,694` | payment + key + complete | `500,720` | `-1,871,332` (`-78.89%`) |
-| `S=B` | `393,412` | key + complete | `516,349` | `-1,855,703` (`-78.23%`) |
-| `S=V` | `328,926` | payment + key + complete | `556,309` | `-1,815,743` (`-76.55%`) |
-
-Interpretation : c'est le gain le plus important de la phase optimiste. La version initiale payait un deploiement complet par echange. La version actuelle paie seulement la creation d'un clone minimal et les appels utiles.
-
-### 4.4 Detail des appels optimistes des clones
-
-| Mode | Creation clone | Payment | Key | Complete | Total |
+| Taille | Normal `submitCommitment` | Hardcoded `submitCommitment` | `pi_1` normal | `pi_1` hardcoded | Gain local |
 |---|---:|---:|---:|---:|---:|
-| `no_S_deposit` | `299,694` | `82,272` | `61,363` | `57,391` | `500,720` |
-| `S=B` | `393,412` | `0` | `61,363` | `61,574` | `516,349` |
-| `S=V` | `328,926` | `104,446` | `61,363` | `61,574` | `556,309` |
+| `13 bytes` | `251,444` | `234,626` | `3` items | `0` item | `-16,818` |
+| `16 KiB` | `463,532` | `400,990` | `10` items | `0` item | `-62,542` |
 
-Le mode `S=B` supprime le paiement buyer separe, car le buyer est deja sponsor initial. Le mode `no_S_deposit` supprime la logique de depot initial de `S` dans la phase optimiste.
+Conclusion : le hardcoded supprime bien la preuve `pi_1`, mais le gain local est partiellement masque dans une dispute complete par les couts fixes et par les autres verifications de Step 8.
 
-## 5. Partie dispute : version initiale vs version actuelle
+### 4.5 Effet sur grands circuits equivalents
 
-### 5.1 Scopes disponibles dans la version initiale
+Ici, on isole la verification d'appartenance a `h_circuit`, qui est la partie que le hardcoded supprime.
 
-La version initiale mesuree localement donne les scopes suivants :
-
-| Mesure version initiale | Gas |
-|---|---:|
-| Deploiement `DisputeSOXAccount` | `5,052,837` |
-| Exchange + dispute triggering | `5,316,358` |
-| Optimistic deploy + dispute init total | `7,460,671` |
-| Challenge round average | `103,172` |
-| `submitCommitment` reel 4 MiB SHA256 gate | `380,001` |
-
-La version initiale ne contient pas les modes self-sponsored et hardcoded SHA256. Ces deux modes sont donc des extensions de la version actuelle, pas des chemins directement presents dans la version initiale.
-
-### 5.2 Version actuelle : dispute complete
-
-La mesure importante pour le self-sponsoring est la dispute complete jusqu'a l'etat final, car le gain vient de la reduction du nombre d'iterations de la boucle `Step 7+8`.
-
-| Cas dispute actuel 16 KiB | Trigger dispute | Respond challenge | Give opinion | Submit commitment | Finalize | Total | Iterations `Step 7+8` |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| normal, sponsors externes | `5,779,296` | `730,818` | `765,456` | `877,768` | `76,462` | `8,345,377` | `2` |
-| self-sponsored `SB=B/SV=V` | `5,781,134` | `365,409` | `382,728` | `455,753` | `73,962` | `7,165,940` | `1` |
-| hardcoded SHA256 | `5,787,348` | `730,818` | `765,456` | `752,684` | `76,462` | `8,310,242` | `2` |
-| self-sponsored + hardcoded SHA256 | `5,789,186` | `365,409` | `382,728` | `393,199` | `73,962` | `7,193,335` | `1` |
-
-### 5.3 Gains dans la dispute actuelle
-
-| Optimisation | Gain total vs dispute actuelle normale | Gain sur `submitCommitment` | Explication |
-|---|---:|---:|---|
-| self-sponsored | `-1,179,437` (`-14.13%`) | `-422,015` (`-48.08%`) | une seule boucle `Step 7+8` |
-| hardcoded SHA256 | `-35,135` (`-0.42%`) | `-125,084` (`-14.25%`) | suppression de la preuve `pi_1` |
-| self-sponsored + hardcoded | `-1,152,042` (`-13.80%`) | `-484,569` (`-55.20%`) | combinaison des deux effets |
-
-Interpretation : le self-sponsoring produit le gain structurel le plus visible dans une dispute complete. Le hardcoded SHA256 reduit bien `Step 8`, mais son effet sur le total 16 KiB est masque par le cout fixe de `triggerDispute`. Le tableau de grands circuits en section 6.3 donne donc la lecture la plus pertinente pour juger le hardcoded : a 1 GiB equivalent, la suppression de `pi_1` economise environ `166k` a `169k` gas sur la verification `h_circuit`.
-
-## 6. Hardcoded SHA256
-
-### 6.1 Clarification de `submitCommitment`
-
-`submitCommitment` est la fonction Solidity correspondant au `Step 8`. Elle verifie on-chain la gate contestee, les valeurs associees et les preuves Merkle.
-
-Dans le circuit generique, `submitCommitment` doit verifier une preuve d'appartenance au circuit via `h_circuit`. Cette preuve correspond a `pi_1`. Les `pi_1 items` sont les elements Merkle fournis pour verifier cette appartenance.
-
-Dans le mode hardcoded SHA256, le circuit est determine par `|x|`. On n'a donc plus besoin de fournir `h_circuit` ni la preuve `pi_1` pour prouver que la gate appartient au circuit generique.
-
-### 6.2 Effet mesure sur petits fichiers
-
-| Taille | Normal `submitCommitment` | Hardcoded `submitCommitment` | `pi_1 items` normal | `pi_1 items` hardcoded | Gain |
+| Taille equivalente | Gates | Profondeur | Verification normale `h_circuit/pi_1` | Verification hardcoded | Gain |
 |---|---:|---:|---:|---:|---:|
-| 13 bytes | `251,420` | `234,626` | `3` | `0` | `-16,794` |
-| 16 KiB | `463,532` | `400,990` | `10` | `0` | `-62,542` |
+| `900 MiB` | `29,491,205` | `25` | `192,267` | `29,639` a `32,390` | `159,877` a `162,628` |
+| `1 GiB` | `33,554,437` | `26` | `198,585` | `29,639` a `32,390` | `166,195` a `168,946` |
 
-### 6.3 Effet mesure sur grands circuits equivalents
+Conclusion : le hardcoded est surtout pertinent pour les grands circuits, parce que la preuve `h_circuit/pi_1` grandit avec la profondeur Merkle.
 
-| Taille equivalente | Gates | Profondeur | Preuve normale `h_circuit` | Gate hardcoded | Economie |
-|---|---:|---:|---:|---:|---:|
-| 900 MiB | `29,491,205` | `25` | `192,267` | `29,639` a `32,390` | `159,877` a `162,628` |
-| 1 GiB | `33,554,437` | `26` | `198,585` | `29,639` a `32,390` | `166,195` a `168,946` |
+### 4.6 Chemin hardcoded specialise : deploy + trigger
 
-Interpretation : le hardcoded SHA256 est surtout interessant quand le circuit devient grand, car la preuve `h_circuit` grandit avec la profondeur. Sur petits fichiers, le gain existe mais reste masque par les couts fixes de dispute.
+Ce benchmark compare l'ancien chemin hardcoded monolithique intermediaire et le chemin hardcoded specialise. Ce n'est pas la reference initiale; c'est une comparaison architecturale interne.
 
-## 7. Gros fichiers off-chain
-
-### 7.1 CLI natif : version initiale vs version actuelle
-
-| Taille | Version initiale | Version actuelle | Gain |
+| Mesure | Monolithique intermediaire | Hardcoded specialise | Gain |
 |---|---:|---:|---:|
-| 900 MiB | passe en `40.23 s`, RSS max `7,387,644 KiB` | passe en `22.85 s`, RSS max `6,388,400 KiB` | `-43.2%` temps, environ `-0.95 GiB` RSS |
-| 1 GiB | echoue, process tue par `SIGKILL` autour de `7,404,640 KiB` RSS | passe en `23.6` a `24.7 s` en execution isolee | support 1 GiB |
+| Deploiement optimistic | `2,793,374` | `2,647,776` | `-145,598` |
+| Configuration hardcoded separee | `81,897` | `0` | `-81,897` |
+| Trigger dispute | `5,767,448` | `2,699,433` | `-3,068,015` |
+| Total scope deploy + payment/key + SB + trigger | `8,921,668` | `5,626,146` | `-3,295,522` |
 
-### 7.2 WASM direct
+Lecture : le gros gain vient de la specialisation du deployer de dispute hardcoded, pas seulement de la suppression de `pi_1`.
 
-Le WASM direct reste conserve pour l'integration JavaScript et les fichiers petits/moyens, mais il ne doit pas etre le chemin de benchmark pour 1 GiB.
+## 5. Version specialisee finale hardcoded stricte end-to-end
 
-| Taille WASM direct | Avant patch memoire | Apres patch memoire |
+### 5.1 Scenario mesure : specialise final, pas initial ni monolithique
+
+Cette section mesure uniquement la **version specialisee finale hardcoded stricte**. Elle ne mesure ni la version initiale, ni la version monolithique actuelle. Le chemin utilise :
+
+- `OptimisticSOXAccountHardcodedSHA256`;
+- `DisputeSOXAccountHardcodedSHA256`;
+- `DisputeDeployerHardcodedSHA256`;
+- `HardcodedSha256CircuitLib`.
+
+Le scenario exact est :
+
+- mode `desc = SHA256` hardcoded;
+- `SB=B` et `SV=V`;
+- `gateBytes = 0x`;
+- `proof1 = []`;
+- le contrat reconstruit la gate;
+- execution complete jusqu'a l'etat `End`.
+
+### 5.2 Gas complet specialise final : 16 KiB et 1 GiB
+
+Point de lecture important : le `Deploiement optimistic hardcoded` mesure ici un contrat direct `OptimisticSOXAccountHardcodedSHA256`, pas un clone minimal. Il est donc a comparer au chemin hardcoded monolithique/intermediaire direct, pas aux couts marginaux des clones optimistes de la section 2.4. Le hardcoded reduit surtout le cout de `triggerDispute`, du deployer de dispute et de `Step 8/pi_1`; il n'a pas pour effet principal de reduire le deploiement du contrat optimiste.
+
+Tous les chiffres du tableau ci-dessous appartiennent donc au chemin **specialise final hardcoded strict**.
+
+| Etape specialisee finale hardcoded stricte | 16 KiB | 1 GiB |
 |---|---:|---:|
-| 640 MiB | echoue | passe, `59.7 s` |
-| 704 MiB | non valide | passe, `61.9 s` |
-| 736 MiB | echoue | echoue |
-| 900 MiB / 1 GiB | echoue | hors cible WASM |
+| Deploiement optimistic hardcoded | `2,668,072` | `2,668,072` |
+| Paiement `B` | `104,441` | `104,441` |
+| Envoi de cle `V` | `58,896` | `58,896` |
+| Depot dispute `SB=B` | `106,954` | `106,954` |
+| Total optimiste avant trigger | `2,938,363` | `2,938,363` |
+| Trigger dispute / deploy dispute | `2,721,171` | `2,721,171` |
+| Total optimistic + trigger | `5,659,534` | `5,659,534` |
+| `respondChallenge` total | `608,190` | `1,581,282` |
+| `giveOpinion` total | `421,615` | `1,095,903` |
+| `submitCommitmentLeft`, sans `gateBytes/pi_1` | `5,449,005` | `5,577,730` |
+| Finalize | `75,667` | `75,667` |
+| Total dispute apres trigger | `6,554,477` | `8,330,582` |
+| Total complet mesure | `12,214,011` | `13,990,116` |
 
-Conclusion : la version actuelle repousse la limite WASM, mais le vrai support gros fichiers repose sur le CLI natif.
+Verification des totaux :
 
-### 7.3 Dispute complete 1 GiB avec CLI natif
+```text
+16 KiB:
+2,668,072 + 104,441 + 58,896 + 106,954 = 2,938,363
+2,938,363 + 2,721,171 = 5,659,534
+608,190 + 421,615 + 5,449,005 + 75,667 = 6,554,477
+5,659,534 + 6,554,477 = 12,214,011
 
-Pour repondre explicitement a la question du passage a 1 GiB, un benchmark end-to-end supplementaire a ete ajoute. Il ne mesure plus seulement le precontrat : il execute une dispute complete sur un fichier de `1 GiB`, avec generation native des reponses `hpre`, transactions on-chain pour tous les rounds, `Step 8`, puis finalisation jusqu'a l'etat `End`.
+1 GiB:
+2,668,072 + 104,441 + 58,896 + 106,954 = 2,938,363
+2,938,363 + 2,721,171 = 5,659,534
+1,581,282 + 1,095,903 + 5,577,730 + 75,667 = 8,330,582
+5,659,534 + 8,330,582 = 13,990,116
+```
 
-Le scenario mesure est volontairement explicite :
+### 5.3 Taille et nombre de rounds
 
-| Parametre | Valeur |
-|---|---:|
-| Taille fichier | `1,073,741,824 bytes` |
-| Mode | hardcoded `desc = SHA256` |
-| Sponsors de dispute | self-sponsored `SB=B`, `SV=V` |
-| Branche de recherche | gauche, V disagree a chaque round |
-| Gate finale | `g_1`, gate AES |
-| Nombre de rounds `Step 7` | `26` |
-| Etat final | `End` |
+| Taille fichier | `numBlocks` | `numGates` | Rounds `Step 7` | Gate finale |
+|---|---:|---:|---:|---|
+| `16 KiB` | `256` | `517` | `10` | `g_1`, AES |
+| `1 GiB` | `16,777,216` | `33,554,437` | `26` | `g_1`, AES |
 
-Ce scenario est une vraie execution complete de dispute, mais il faut noter qu'il termine sur une gate AES. Il mesure donc un cas complet valide, pas le cas local qui maximise uniquement le gain hardcoded sur la preuve `h_circuit / pi_1`.
+Le nombre de rounds suit la recherche binaire : environ `log2(numGates)`.
 
-Temps mesures :
+### 5.4 Temps off-chain du benchmark 1 GiB
 
-| Mesure | Temps |
-|---|---:|
-| Precontrat CLI natif, wall-clock | `42.79 s` |
-| Generation native dispute, wall-clock | `22.65 s` |
-| Generation totale des `hpre` | `11.03 s` |
-| Execution on-chain locale de la dispute | `0.43 s` |
+Ces temps ne sont pas du gas. Ils mesurent le temps wall-clock local du benchmark. Ils ne correspondent pas tous au meme acteur : certains sont du travail de `V`, certains de `B`, et certains sont des temps agreges du script de mesure.
 
-Detail des premiers `hpre` :
+| Mesure 1 GiB | Temps | Acteur protocolaire principal | Lecture correcte |
+|---|---:|---|---|
+| Precontrat CLI natif | `48.70 s` | `V` | Preparation du precontrat : lecture de `x`, chiffrement, `ct`, engagements et metadonnees |
+| Generation native dispute | `35.46 s` | Benchmark global | Temps du script natif qui prepare toutes les donnees de dispute mesurees; ce n'est pas le temps d'un seul acteur dans une execution interactive |
+| Generation totale des `hpre` | `11.92 s` | `B` | Somme des calculs off-chain de `hpre_i` pour les 26 rounds de recherche binaire |
+| Execution locale des transactions Hardhat | `0.56 s` | `B` + `V` + chaine locale | Temps wall-clock local pour envoyer les transactions dans Hardhat; ce n'est pas une mesure cryptographique par acteur |
 
-| Round | Challenge | Temps `hpre` |
+Attribution par acteur :
+
+| Acteur | Temps directement attribuable dans ce benchmark | Ce que cela couvre |
+|---|---:|---|
+| `V` | `48.70 s` | Preparation initiale du precontrat pour `1 GiB` |
+| `B` | `11.92 s` | Calcul cumule des `hpre_i` publies dans `respondChallenge` |
+| `V` pendant la dispute | non isole separement | `giveOpinion` et preparation des temoins/proofs Step 8 sont inclus dans la generation native dispute globale |
+| `B + V + local chain` | `0.56 s` | Envoi local des transactions Hardhat, sans latence reseau reelle |
+
+Le chiffre `35.46 s` est donc a lire comme un temps d'outil de benchmark : il regroupe la generation native des donnees necessaires a la dispute complete. Il contient notamment les calculs de `hpre`, mais il n'est pas directement attribuable a un seul participant du protocole.
+
+Verification pre-dispute par `B` :
+
+| Cas | Ce que `B` doit verifier avant d'accepter | Est-ce le meme travail que `V` ? |
+|---|---|---|
+| Circuit generique | Obtenir/inspecter le circuit, verifier que `desc` correspond a l'echange attendu, verifier les engagements publics comme `h_ct` et `h_circuit` | Non. `B` ne connait pas encore `x` en clair; il ne refait pas la generation du precontrat depuis le plaintext |
+| Hardcoded `desc = SHA256` | Verifier les metadonnees publiques : `desc = SHA256`, `len(x)`, `numBlocks`, `numGates`, `IV`, `h_ct`, et le commitment | Non. Le circuit est derive de `len(x)`; `B` n'a pas besoin de recevoir ou reconstruire un gros `circuit_bytes` complet |
+| Apres reception de la cle | Dechiffrer/verifier localement que le fichier obtenu satisfait `desc` | C'est le controle fonctionnel de `B`; s'il echoue, `B` peut declencher la dispute |
+
+Ainsi, `B` verifie bien la coherence du precontrat avant la dispute. La difference est que, dans le mode hardcoded, la structure du circuit SHA256 est determinee par les metadonnees publiques et n'a pas besoin d'etre materialisee comme un circuit generique complet. C'est un des interets du mode hardcoded.
+
+### 5.5 Detail des premiers `hpre`
+
+| Round | Indice de challenge `i` | Temps off-chain `hpre_i` |
 |---:|---:|---:|
-| `0` | `16,777,219` | `5.47 s` |
-| `1` | `8,388,610` | `2.47 s` |
-| `2` | `4,194,305` | `1.20 s` |
-| `3` | `2,097,153` | `0.70 s` |
-| `4` | `1,048,577` | `0.36 s` |
+| `0` | `16,777,219` | `6.04 s` |
+| `1` | `8,388,610` | `2.46 s` |
+| `2` | `4,194,305` | `1.33 s` |
+| `3` | `2,097,153` | `0.71 s` |
+| `4` | `1,048,577` | `0.39 s` |
 
-Gas mesures :
+La colonne `i` est l'indice de recherche binaire, pas un cout en gas. Dans ce scenario, on force la branche gauche et `V` disagree a chaque round. L'indice `i` est donc divise approximativement par deux a chaque round. Le temps off-chain de `hpre_i` diminue parce que l'implementation native recalcule le prefixe/accumulateur necessaire pour cet indice.
 
-| Etape | Gas |
-|---|---:|
-| Deploiement optimistic hardcoded | `2,668,072` |
-| Paiement B | `104,441` |
-| Envoi de cle V | `58,896` |
-| Depot dispute `SB=B` | `106,954` |
-| Trigger dispute / deploy dispute | `2,721,171` |
-| Total chemin optimistic + trigger | `5,659,534` |
-| `respondChallenge`, 26 rounds | `1,581,282` |
-| `giveOpinion`, 26 rounds | `1,095,903` |
-| `submitCommitmentLeft`, gate AES + preuve `h_ct`, sans `gateBytes/pi_1` | `5,577,706` |
-| Finalize `completeDispute` | `75,667` |
-| Total execution dispute apres trigger | `8,330,558` |
-| Total complet mesure | `13,990,092` |
+Le gas de `respondChallenge` et `giveOpinion` ne suit pas cette division par deux. Dans le benchmark 1 GiB, les totaux sont :
 
-Point important : pendant ce benchmark, le contrat specialise a aussi ete corrige pour utiliser le meme decodage V2 que le contrat initial. Les fils negatifs `g_-i` sont maintenant relies a `h_ct`, et le CLI fournit une vraie preuve Merkle `proof2` pour le bloc ciphertext utilise par la gate AES. Sans cette correction, le chemin passait on-chain mais ne verifiait pas proprement l'appartenance du bloc ciphertext.
+```text
+respondChallenge: 1,581,282 gas pour 26 rounds, soit environ 60,819 gas/round
+giveOpinion:      1,095,903 gas pour 26 rounds, soit environ 42,150 gas/round
+```
 
-Point supplementaire apres le dernier patch : l'appel hardcoded strict passe `gateBytes = 0x` et `proof1 = []`. Le contrat reconstruit donc la gate attendue lui-meme, puis verifie seulement les temoins et preuves d'accumulateur necessaires.
+## 6. Gros fichiers et off-chain
 
-## 8. Synthese : ce que la version actuelle apporte
+### 6.1 Pourquoi le CLI natif est utilise
 
-La version actuelle ameliore la version initiale sur plusieurs axes.
+Le WASM direct reste utile pour l'integration JavaScript et les fichiers petits/moyens. En revanche, il n'est pas le chemin fiable pour `1 GiB`, car la pression memoire devient trop forte dans le contexte JS/WASM.
 
-| Axe | Apport |
+Le CLI Rust natif est le chemin de benchmark pour les gros fichiers. Il a permis d'executer une dispute complete hardcoded `1 GiB` jusqu'a `End`.
+
+### 6.2 Limite du WASM direct observee
+
+| Taille WASM direct | Observation |
 |---|---|
-| Architecture | passage d'un deploiement complet par echange a une infrastructure reutilisable + clones |
-| Phase optimiste | cout marginal reduit de `2.37M` a environ `500k-556k` pour les variantes specialisees |
-| `no_S_deposit` | suppression de la logique de depot initial de `S` dans la phase optimiste |
-| `S=B` | fusion logique de `Step 1+2` |
-| `SB=B/SV=V` | reduction du nombre d'iterations de dispute |
-| Hardcoded SHA256 | suppression de `h_circuit` et `pi_1` dans `Step 8` |
-| Gros fichiers | passage de 900 MiB supporte a 1 GiB supporte via CLI natif |
-| Dispute 1 GiB | dispute hardcoded complete mesuree jusqu'a `End`, avec `26` rounds et preuves natives |
+| `640 MiB` | passe apres patch memoire, environ `59.7 s` |
+| `704 MiB` | passe apres patch memoire, environ `61.9 s` |
+| `736 MiB` | echoue encore |
+| `900 MiB / 1 GiB` | hors cible WASM direct |
 
-La transformation principale n'est donc pas une micro-optimisation locale. La version actuelle change le modele de cout marginal du protocole : les modes connus au precontrat ne paient plus pour une logique generique inutile.
+Conclusion : le support `1 GiB` doit etre revendique pour le CLI natif, pas pour le chemin WASM direct.
 
-## 9. Limites restantes
+## 7. Synthese comptable des resultats
+
+| Axe | Resultat rigoureux |
+|---|---|
+| Chemin monolithique actuel | Plus cher que la version initiale si mesure dans le meme scope |
+| Architecture finale optimiste | Cout marginal reduit a `500,720` - `556,309 gas` selon le mode |
+| Specialisee finale `4 MiB` meme scope | `5,495,161 gas`, soit `-38.06%` vs monolithique et `-22.10%` vs initiale |
+| Specialisee finale dispute `16 KiB` | Gain de `-10.94%` a `-43.81%` selon le cas, a scope identique avec 3.2 |
+| `SOXFactory` | Cout fixe unique `561,126 gas` |
+| Infrastructure clone complete | Cout fixe `6,584,001 gas` a amortir |
+| Self-sponsoring dispute | Reduit bien `Step 7+8` de `2` iterations a `1` dans le benchmark 16 KiB |
+| Hardcoded SHA256 local | Supprime `pi_1`, gain `62,542 gas` sur `submitCommitment` 16 KiB |
+| Hardcoded SHA256 grands circuits | Economie `166,195` a `168,946 gas` sur la preuve `h_circuit/pi_1` a `1 GiB` |
+| Hardcoded strict 1 GiB | Dispute complete jusqu'a `End`, `26` rounds, `13,990,116 gas` total avec optimistic + trigger + dispute |
+
+## 8. Limites restantes
 
 | Limite | Impact |
 |---|---|
-| `triggerDispute` reste tres couteux | principal cout fixe restant dans la dispute |
-| `submitCommitmentLeft` AES reste couteux | le hardcoded supprime `pi_1`, mais l'evaluation AES et les preuves `h_ct/hpre` restent dominantes |
-| WASM direct ne supporte pas 1 GiB | acceptable si le backend utilise le CLI natif |
-| Certains tests legacy de preuve ne suivent plus l'interface actuelle | nettoyage necessaire pour hygiene de test suite |
+| `triggerDispute` reste tres couteux | Il domine les totals complets de dispute |
+| `submitCommitment` generique reste proche du monolithique | La specialisation architecturale reduit surtout le deploiement/trigger, pas encore le verificateur generique |
+| `submitCommitmentLeft` AES reste couteux | Le hardcoded supprime `pi_1`, mais AES + preuves `h_ct/hpre` restent dominants |
+| WASM direct ne supporte pas `1 GiB` | Le backend/benchmark doit utiliser le CLI natif |
+| Les couts de factory/implementations sont fixes | Les gains de clones sont des gains marginaux amortis, pas des couts premier deploiement |
 
-## 10. Conclusion Phase 4
+## 9. Conclusion Phase 4
 
-La Phase 4 est consideree comme terminee.
+La Phase 4 peut etre consideree comme terminee, avec une interpretation corrigee des mesures.
 
-Les mesures montrent que la version actuelle ameliore la version initiale de maniere structurelle :
+Les resultats importants sont :
 
-- le cas normal specialise revient au niveau de la version initiale, legerement en dessous sur le deploiement;
-- les variantes optimistes avec clones reduisent le cout marginal par echange d'environ `77%` a `79%`;
-- la dispute self-sponsored reduit effectivement le nombre d'iterations `Step 7+8`;
-- le hardcoded SHA256 supprime bien les `pi_1 items`; sur 1 GiB equivalent, il economise environ `166k` a `169k` gas sur la preuve `h_circuit`;
-- le chemin off-chain natif supporte maintenant 1 GiB, alors que la version initiale echoue dans cet environnement.
-- une dispute complete hardcoded 1 GiB a ete executee jusqu'a `End` : `26` rounds, `11.03 s` de generation `hpre`, `8,330,558 gas` d'execution dispute apres trigger, `13,990,092 gas` au total avec chemin optimistic et trigger.
+- la mesure monolithique brute du repo courant est plus chere que la version initiale, ce qui justifie l'abandon du contrat couteau suisse;
+- les variantes optimistes specialisees avec clones reduisent le cout marginal par echange d'environ `75.8%` a `78.2%`;
+- a meme scope `4 MiB`, la version specialisee finale reduit le cout optimistic deploy + dispute init de `8,872,119` a `5,495,161 gas`;
+- a meme scope `16 KiB`, les quatre scenarios de dispute specialises sont tous moins chers que leurs equivalents monolithiques;
+- le self-sponsoring reduit bien le nombre d'iterations de dispute;
+- le hardcoded `desc = SHA256` supprime bien `pi_1` et devient surtout utile pour les grands circuits;
+- le chemin hardcoded strict ne depend plus d'une gate fournie par `V`;
+- une dispute hardcoded `1 GiB` a ete executee completement jusqu'a `End`.
 
-La prochaine cible d'optimisation devrait etre `submitCommitmentLeft` pour les gates AES, car le deploiement hardcoded a ete fortement reduit et le cout dominant se deplace vers l'evaluation/proof du `Step 8`.
+La prochaine cible d'optimisation devrait etre `triggerDispute` et `submitCommitmentLeft` pour les gates AES, car ce sont maintenant les couts dominants.

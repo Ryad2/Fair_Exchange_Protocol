@@ -358,4 +358,254 @@ describe("Native CLI 1 GiB hardcoded SHA256 full dispute", function () {
 
         expect(totalGas).to.be.greaterThan(0n);
     });
+
+    it("measures a direct three-iteration hardcoded SHA256 dispute with external sponsors", async function () {
+        const preStarted = performance.now();
+        const { stdout: preStdout } = await execFileAsync(
+            precontractCli,
+            [inputPath, KEY_HEX],
+            { maxBuffer: 1024 * 1024 }
+        );
+        const precontractMs = performance.now() - preStarted;
+        const pre = JSON.parse(preStdout) as PrecontractCliOutput;
+
+        expect(pre.num_blocks).to.equal(EXPECTED_BLOCKS);
+        expect(pre.num_gates).to.equal(EXPECTED_GATES);
+        await rm(pre.circuit_path, { force: true });
+
+        const disputeStarted = performance.now();
+        const { stdout: disputeStdout } = await execFileAsync(
+            disputeCli,
+            [
+                inputPath,
+                pre.ciphertext_path,
+                pre.num_blocks.toString(),
+                pre.num_gates.toString(),
+            ],
+            { maxBuffer: 1024 * 1024 }
+        );
+        const nativeDisputeMs = performance.now() - disputeStarted;
+        const native = JSON.parse(disputeStdout) as NativeDisputeOutput;
+
+        expect(native.rounds).to.have.length(expectedLeftPathRounds(pre.num_gates));
+        expect(native.final_left.gate_num).to.equal(1);
+
+        const shared = await deploySharedContext();
+        const OptimisticFactory = await ethers.getContractFactory(
+            "OptimisticSOXAccountHardcodedSHA256",
+            {
+                libraries: {
+                    DisputeDeployerHardcodedSHA256:
+                        await shared.disputeDeployerHardcodedSHA256.getAddress(),
+                    HardcodedSha256CircuitLib:
+                        await shared.hardcodedSha256CircuitLib.getAddress(),
+                },
+            }
+        );
+        const ciphertextIv =
+            "0x" + native.final_left.gate_bytes_hex.slice(2 + 7 * 2, 2 + 23 * 2);
+
+        const deployStarted = performance.now();
+        const optimistic = await OptimisticFactory.connect(shared.sponsor).deploy(
+            await shared.entryPoint.getAddress(),
+            await shared.vendor.getAddress(),
+            await shared.buyer.getAddress(),
+            AGREED_PRICE,
+            COMPLETION_TIP,
+            DISPUTE_TIP,
+            TIMEOUT_INCREMENT,
+            hex32(pre.commitment_c_hex),
+            BigInt(pre.num_blocks),
+            BigInt(pre.num_gates),
+            await shared.vendor.getAddress(),
+            hex32(pre.description_hex),
+            BigInt(FILE_SIZE_BYTES),
+            ciphertextIv,
+            { value: SPONSOR_FEES }
+        );
+        await optimistic.waitForDeployment();
+        const deployReceipt = await optimistic.deploymentTransaction()?.wait();
+        if (!deployReceipt) throw new Error("Missing optimistic deployment receipt");
+        const optimisticDeployMs = performance.now() - deployStarted;
+
+        const paymentGas = await gasOf(
+            optimistic
+                .connect(shared.buyer)
+                .sendPayment({ value: AGREED_PRICE + COMPLETION_TIP })
+        );
+        const keyGas = await gasOf(optimistic.connect(shared.vendor).sendKey(KEY_BYTES16));
+
+        const authHash = await optimistic.buyerUnhappyAuthorizationHash(
+            await shared.buyerDisputeSponsor.getAddress()
+        );
+        const authSignature = await shared.buyer.signMessage(ethers.getBytes(authHash));
+        const buyerSponsorGas = await gasOf(
+            optimistic
+                .connect(shared.buyerDisputeSponsor)
+                .sendBuyerDisputeSponsorFeeWithAuthorization(authSignature, {
+                    value: DISPUTE_FEES + DISPUTE_TIP,
+                })
+        );
+        const triggerGas = await gasOf(
+            optimistic.connect(shared.vendorDisputeSponsor).sendVendorDisputeSponsorFee({
+                value: DISPUTE_FEES + DISPUTE_TIP + AGREED_PRICE,
+            })
+        );
+
+        const disputeAddress = await optimistic.disputeContract();
+        const dispute = await ethers.getContractAt(
+            "DisputeSOXAccountHardcodedSHA256",
+            disputeAddress
+        );
+
+        const signersByAddress = new Map<string, any>();
+        for (const signer of [
+            shared.buyer,
+            shared.vendor,
+            shared.buyerDisputeSponsor,
+            shared.vendorDisputeSponsor,
+        ]) {
+            signersByAddress.set((await signer.getAddress()).toLowerCase(), signer);
+        }
+        const signerFor = async (address: string) => {
+            const signer = signersByAddress.get(address.toLowerCase());
+            if (!signer) {
+                throw new Error(`No signer for dispute actor ${address}`);
+            }
+            return signer;
+        };
+
+        const corruptedCurrAcc = ethers.keccak256(
+            ethers.toUtf8Bytes("bad hardcoded current accumulator")
+        );
+
+        let respondGas = 0n;
+        let opinionGas = 0n;
+        const respondGasByCycle: bigint[] = [];
+        const opinionGasByCycle: bigint[] = [];
+        const submitGasByCycle: bigint[] = [];
+        const cycleOutcomes: string[] = [];
+
+        const runChallengeRounds = async () => {
+            let cycleRespondGas = 0n;
+            let cycleOpinionGas = 0n;
+            for (const round of native.rounds) {
+                expect(await dispute.chall()).to.equal(BigInt(round.challenge));
+                const buyerSigner = await signerFor(await dispute.buyer());
+                const vendorSigner = await signerFor(await dispute.vendor());
+                cycleRespondGas += await gasOf(
+                    dispute.connect(buyerSigner).respondChallenge(round.hpre_hex)
+                );
+                cycleOpinionGas += await gasOf(
+                    dispute.connect(vendorSigner).giveOpinion(false)
+                );
+            }
+            respondGasByCycle.push(cycleRespondGas);
+            opinionGasByCycle.push(cycleOpinionGas);
+            respondGas += cycleRespondGas;
+            opinionGas += cycleOpinionGas;
+            expect(await dispute.currState()).to.equal(3n); // WaitVendorDataLeft
+        };
+
+        const submitLeft = async (
+            currAcc: string,
+            proofExt: string[][],
+            expectedStateAfter: bigint
+        ) => {
+            const vendorSigner = await signerFor(await dispute.vendor());
+            const submitGas = await gasOf(
+                dispute.connect(vendorSigner).submitCommitmentLeft(
+                    hex32(pre.commitment_o_hex),
+                    native.final_left.gate_num,
+                    "0x",
+                    native.final_left.values_hex,
+                    currAcc,
+                    [],
+                    native.final_left.proof2,
+                    proofExt
+                )
+            );
+            submitGasByCycle.push(submitGas);
+            expect(await dispute.currState()).to.equal(expectedStateAfter);
+            return submitGas;
+        };
+
+        const onchainDisputeStarted = performance.now();
+
+        // Cycle 1: valid Step 8 makes B lose, so Step 9 replaces B by SB and restarts.
+        await runChallengeRounds();
+        await submitLeft(native.final_left.curr_acc_hex, native.final_left.proof_ext, 0n); // ChallengeBuyer
+        cycleOutcomes.push("valid left proof: buyer loses, B becomes SB");
+
+        // Cycle 2: corrupted currAcc still exercises the hardcoded Step 8 verifier
+        // after proof2 succeeds, but makes V lose so Step 9 replaces V by SV.
+        await runChallengeRounds();
+        await submitLeft(corruptedCurrAcc, native.final_left.proof_ext, 0n); // ChallengeBuyer
+        cycleOutcomes.push("corrupted currAcc: vendor loses, V becomes SV");
+
+        // Cycle 3: valid Step 8 makes the current buyer lose. Since buyer == SB,
+        // Step 9 terminates without a fourth Step 7+8 loop.
+        await runChallengeRounds();
+        await submitLeft(native.final_left.curr_acc_hex, native.final_left.proof_ext, 5n); // Complete
+        cycleOutcomes.push("valid left proof: buyer sponsor loses, dispute completes");
+
+        const finalizeGas = await gasOf(
+            dispute.connect(await signerFor(await dispute.buyer())).completeDispute()
+        );
+        expect(await dispute.currState()).to.equal(7n); // End
+        const onchainDisputeMs = performance.now() - onchainDisputeStarted;
+
+        const optimisticPathGas =
+            deployReceipt.gasUsed + paymentGas + keyGas + buyerSponsorGas + triggerGas;
+        const submitGasTotal = submitGasByCycle.reduce((sum, gas) => sum + gas, 0n);
+        const disputeExecutionGas =
+            respondGas + opinionGas + submitGasTotal + finalizeGas;
+        const totalGas = optimisticPathGas + disputeExecutionGas;
+
+        console.log(
+            "THREE_ITERATION_1G_HARDCODED_EXTERNAL_JSON=" +
+                JSON.stringify({
+                    fileSizeBytes: FILE_SIZE_BYTES,
+                    numBlocks: pre.num_blocks,
+                    numGates: pre.num_gates,
+                    cycles: 3,
+                    roundsPerCycle: native.rounds.length,
+                    step78Executions: native.rounds.length * 3,
+                    cycleOutcomes,
+                    timingsMs: {
+                        precontractCliWall: precontractMs,
+                        nativeDisputeCliWall: nativeDisputeMs,
+                        nativeHpreOnePassTotal: native.timings.all_hpre_ms,
+                        nativeDisputeCliInternalTotal: native.timings.total_ms,
+                        optimisticDeployWall: optimisticDeployMs,
+                        onchainDisputeWall: onchainDisputeMs,
+                    },
+                    gas: {
+                        optimisticDeploy: deployReceipt.gasUsed.toString(),
+                        payment: paymentGas.toString(),
+                        key: keyGas.toString(),
+                        buyerSponsorExternal: buyerSponsorGas.toString(),
+                        triggerDispute: triggerGas.toString(),
+                        respondChallengeByCycle: respondGasByCycle.map((gas) =>
+                            gas.toString()
+                        ),
+                        respondChallengeTotal: respondGas.toString(),
+                        giveOpinionByCycle: opinionGasByCycle.map((gas) =>
+                            gas.toString()
+                        ),
+                        giveOpinionTotal: opinionGas.toString(),
+                        submitCommitmentLeftByCycle: submitGasByCycle.map((gas) =>
+                            gas.toString()
+                        ),
+                        submitCommitmentLeftTotal: submitGasTotal.toString(),
+                        finalize: finalizeGas.toString(),
+                        optimisticPathTotal: optimisticPathGas.toString(),
+                        disputeExecutionTotalAfterTrigger: disputeExecutionGas.toString(),
+                        totalIncludingOptimisticPath: totalGas.toString(),
+                    },
+                })
+        );
+
+        expect(disputeExecutionGas).to.be.greaterThan(0n);
+    });
 });
