@@ -18,6 +18,7 @@ CREATE TABLE contracts (
     protocol_version NUMBER NOT NULL,
     timeout_delay NUMBER NOT NULL,
     algorithm_suite TEXT NOT NULL,
+    precontract_variant TEXT NOT NULL DEFAULT 'normal',
 
     accepted INTEGER NOT NULL,
     sponsor TEXT, -- can be null while the sponsor hasn't been found

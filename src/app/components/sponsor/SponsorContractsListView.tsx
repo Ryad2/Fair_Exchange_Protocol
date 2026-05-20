@@ -4,11 +4,18 @@ import Button from "../common/Button";
 import { useEffect, useRef, useState } from "react";
 import SponsorModal from "./SponsorModal";
 import { deployOptimisticContract } from "../../lib/blockchain/optimistic";
+import {
+    normalizePreContractVariant,
+    preContractVariantLabel,
+} from "@/app/lib/protocol-variants";
 
 type Contract = {
     id: number;
+    pk_buyer: string;
+    pk_vendor: string;
     tip_completion: number;
     timeout_delay: number;
+    precontract_variant?: string;
 };
 
 export default function SponsorContractsListView() {
@@ -58,6 +65,25 @@ export default function SponsorContractsListView() {
             if (deployCancelledRef.current) return;
 
             console.log(contractInfo);
+            const preContractVariant = normalizePreContractVariant(
+                contractInfo.precontract_variant
+            );
+            const requiredSponsor =
+                preContractVariant === "S_equals_B"
+                    ? contractInfo.pk_buyer
+                    : preContractVariant === "S_equals_V"
+                      ? contractInfo.pk_vendor
+                      : null;
+
+            if (
+                requiredSponsor &&
+                pkSponsor.toLowerCase() !== requiredSponsor.toLowerCase()
+            ) {
+                throw new Error(
+                    `${preContractVariantLabel(preContractVariant)} requires the sponsor/deployer to be ${requiredSponsor}`
+                );
+            }
+
             const deploymentResult = await deployOptimisticContract(
                 contractInfo.pk_buyer,
                 contractInfo.pk_vendor,
@@ -68,7 +94,11 @@ export default function SponsorContractsListView() {
                 contractInfo.commitment,
                 contractInfo.num_blocks as number,
                 contractInfo.num_gates as number,
-                pkSponsor
+                pkSponsor,
+                {
+                    preContractVariant,
+                    useFactoryClones: true,
+                }
             );
 
             if (deployCancelledRef.current) return;
@@ -105,6 +135,19 @@ export default function SponsorContractsListView() {
         setIsDeploying(false);
     };
 
+    const selectedContractInfo = contracts.find(
+        (contract) => contract.id === selectedContract
+    );
+    const selectedVariant = normalizePreContractVariant(
+        selectedContractInfo?.precontract_variant
+    );
+    const forcedSponsor =
+        selectedContractInfo && selectedVariant === "S_equals_B"
+            ? selectedContractInfo.pk_buyer
+            : selectedContractInfo && selectedVariant === "S_equals_V"
+              ? selectedContractInfo.pk_vendor
+              : null;
+
     return (
         <div className="bg-gray-300 p-4 rounded w-1/2 overflow-auto">
             <h2 className="text-lg font-semibold mb-4">Contracts</h2>
@@ -113,18 +156,24 @@ export default function SponsorContractsListView() {
                     <tr className="border-b border-black text-left font-medium">
                         <th className="p-2 w-1/5">ID</th>
                         <th className="p-2 w-1/5">Tip</th>
-                        <th className="p-2 w-1/5">Timeout delay</th>
+                        <th className="p-2 w-1/5">Mode</th>
+                        <th className="p-2 w-1/5">Timeout</th>
                         <th className="p-2 w-1/5"></th>
                     </tr>
                 </thead>
                 <tbody>
-                    {contracts.map((c, i) => (
+                    {contracts.map((c) => (
                         <tr
                             key={c.id}
                             className="even:bg-gray-200 border-b border-black h-15"
                         >
                             <td className="p-2 w-1/5">{c.id}</td>
                             <td className="p-2 w-1/5">{c.tip_completion}</td>
+                            <td className="p-2 w-1/5">
+                                {preContractVariantLabel(
+                                    c.precontract_variant
+                                )}
+                            </td>
                             <td className="p-2 w-1/5">{c.timeout_delay}</td>
                             <td className="p-2 w-1/5 text-center">
                                 <Button
@@ -147,6 +196,14 @@ export default function SponsorContractsListView() {
                     onClose={() => showModal(false)}
                     onConfirm={handleSponsorConfirmation}
                     id_prefix="contract"
+                    sponsorOptions={
+                        forcedSponsor ? [forcedSponsor] : undefined
+                    }
+                    helperText={
+                        forcedSponsor
+                            ? `${preContractVariantLabel(selectedVariant)}: the deployer must be this participant.`
+                            : undefined
+                    }
                 />
             )}
 

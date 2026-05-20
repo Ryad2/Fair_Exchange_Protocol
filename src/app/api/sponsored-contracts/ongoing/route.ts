@@ -15,6 +15,7 @@ export async function GET(req: NextRequest) {
             protocol_version,
             timeout_delay,
             algorithm_suite,
+            precontract_variant,
             sponsor,
             commitment,
             optimistic_smart_contract,

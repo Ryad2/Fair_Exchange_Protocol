@@ -5,7 +5,7 @@ interface FormSelectProps {
     children: string;
     value: string;
     onChange: (value: string) => void;
-    options: string[];
+    options: Array<string | { value: string; label: string }>;
     disabled?: boolean;
 }
 
@@ -32,11 +32,15 @@ export default function FormSelect({
                     disabled ? "bg-gray-100 text-gray-500" : ""
                 }`}
             >
-                {options.map((opt) => (
-                    <option key={opt} value={opt}>
-                        {opt}
-                    </option>
-                ))}
+                {options.map((opt) => {
+                    const value = typeof opt === "string" ? opt : opt.value;
+                    const label = typeof opt === "string" ? opt : opt.label;
+                    return (
+                        <option key={value} value={value}>
+                            {label}
+                        </option>
+                    );
+                })}
             </select>
         </div>
     );

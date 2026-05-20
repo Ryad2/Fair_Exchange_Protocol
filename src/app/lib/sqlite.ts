@@ -49,6 +49,7 @@ try {
                 protocol_version NUMBER NOT NULL,
                 timeout_delay NUMBER NOT NULL,
                 algorithm_suite TEXT NOT NULL,
+                precontract_variant TEXT NOT NULL DEFAULT 'normal',
                 accepted INTEGER NOT NULL,
                 sponsor TEXT,
                 optimistic_smart_contract TEXT,
@@ -94,6 +95,15 @@ try {
 } catch (e: any) {
     if (!e.message?.includes("duplicate column name")) {
         console.warn("Warning adding session_key_address:", e.message);
+    }
+}
+try {
+    db.exec(
+        "ALTER TABLE contracts ADD COLUMN precontract_variant TEXT NOT NULL DEFAULT 'normal'"
+    );
+} catch (e: any) {
+    if (!e.message?.includes("duplicate column name")) {
+        console.warn("Warning adding precontract_variant:", e.message);
     }
 }
 

@@ -3,6 +3,7 @@
 import Button from "../common/Button";
 import { useEffect, useState } from "react";
 import NonAcceptedPrecontractModal from "./NonAcceptedPrecontractModal";
+import { preContractVariantLabel } from "@/app/lib/protocol-variants";
 
 export type Contract = {
     id: number;
@@ -15,6 +16,7 @@ export type Contract = {
     protocol_version: number;
     timeout_delay: number;
     algorithm_suite: string;
+    precontract_variant?: string;
     commitment: string;
     accepted: number;
     num_blocks: number;
@@ -70,7 +72,8 @@ export default function NonAcceptedPrecontractsListView({
                     <thead>
                         <tr className="border-b border-black text-left font-medium">
                             <th className="p-2 w-2/10">ID</th>
-                            <th className="p-2 w-6/10">Submitted by</th>
+                            <th className="p-2 w-4/10">Submitted by</th>
+                            <th className="p-2 w-2/10">Mode</th>
                             <th className="p-2 w-2/10"></th>
                         </tr>
                     </thead>
@@ -80,9 +83,14 @@ export default function NonAcceptedPrecontractsListView({
                                 key={c.id}
                                 className="even:bg-gray-200 border-b border-black h-15"
                             >
-                                <td className="p-2 w-1/3">{c.id}</td>
-                                <td className="p-2 w-1/3">{c.pk_vendor}</td>
-                                <td className="p-2 w-1/3 text-center">
+                                <td className="p-2">{c.id}</td>
+                                <td className="p-2">{c.pk_vendor}</td>
+                                <td className="p-2">
+                                    {preContractVariantLabel(
+                                        c.precontract_variant
+                                    )}
+                                </td>
+                                <td className="p-2 text-center">
                                     <Button
                                         label="Show details"
                                         onClick={() => handleShowDetails(c)}

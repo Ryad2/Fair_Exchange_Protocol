@@ -5,6 +5,7 @@ import Button from "../common/Button";
 import { Contract } from "./NonAcceptedPrecontractsListView";
 import init from "@/app/lib/crypto_lib";
 import { downloadFile, hexToBytes } from "@/app/lib/helpers";
+import { preContractVariantLabel } from "@/app/lib/protocol-variants";
 
 const BLOCK_SIZE = 64;
 
@@ -29,6 +30,7 @@ export default function NonAcceptedPrecontractModal({
         protocol_version,
         timeout_delay,
         algorithm_suite,
+        precontract_variant,
         accepted,
         sponsor,
         commitment,
@@ -213,6 +215,10 @@ export default function NonAcceptedPrecontractModal({
                 </div>
                 <div>
                     <strong>Algorithm Suite:</strong> {algorithm_suite}
+                </div>
+                <div>
+                    <strong>Transaction Mode:</strong>{" "}
+                    {preContractVariantLabel(precontract_variant)}
                 </div>
                 <div className="col-span-2">
                     <Button

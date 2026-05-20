@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Modal from "../common/Modal";
 import Button from "../common/Button";
 import FormSelect from "../common/FormSelect";
@@ -9,6 +9,8 @@ interface SponsorModalProps {
     onClose: () => void;
     onConfirm: (pk: string) => void;
     id_prefix: string;
+    sponsorOptions?: string[];
+    helperText?: string;
 }
 
 export default function SponsorModal({
@@ -16,8 +18,20 @@ export default function SponsorModal({
     onClose,
     onConfirm,
     id_prefix,
+    sponsorOptions,
+    helperText,
 }: SponsorModalProps) {
-    const [pkSponsor, setPkSponsor] = useState(ALL_PUBLIC_KEYS[0]);
+    const availableSponsorOptions =
+        sponsorOptions && sponsorOptions.length > 0
+            ? sponsorOptions
+            : ALL_PUBLIC_KEYS;
+    const [pkSponsor, setPkSponsor] = useState(availableSponsorOptions[0]);
+
+    useEffect(() => {
+        if (!availableSponsorOptions.includes(pkSponsor)) {
+            setPkSponsor(availableSponsorOptions[0]);
+        }
+    }, [availableSponsorOptions, pkSponsor]);
 
     const onClick = () => {
         onConfirm(pkSponsor);
@@ -33,10 +47,15 @@ export default function SponsorModal({
                         id={`${id_prefix}-sponsor-pk`}
                         value={pkSponsor}
                         onChange={setPkSponsor}
-                        options={ALL_PUBLIC_KEYS}
+                        options={availableSponsorOptions}
                     >
                         Public key
                     </FormSelect>
+                    {helperText && (
+                        <p className="mt-2 text-sm text-gray-700">
+                            {helperText}
+                        </p>
+                    )}
                 </div>
                 <div className="flex text-center gap-8 mt-8">
                     <Button label="Confirm" onClick={onClick} />

@@ -6,6 +6,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { Readable } from "node:stream";
 import { UPLOADS_PATH, WASM_PATH } from "../files/[id]/route";
+import { normalizePreContractVariant } from "../../lib/protocol-variants";
 
 
 let hex_to_bytes: any;
@@ -170,6 +171,7 @@ export async function PUT(req: Request) {
                     protocol_version: parsed.fields.protocol_version,
                     timeout_delay: parsed.fields.timeout_delay,
                     algorithm_suite: parsed.fields.algorithm_suite,
+                    precontract_variant: parsed.fields.precontract_variant,
                 };
 
                 const { stdout } = await execFileAsync(PRECONTRACT_CLI_PATH, [tempFilePath]);
@@ -253,6 +255,9 @@ export async function PUT(req: Request) {
                 protocol_version: data.protocol_version || "1",
                 timeout_delay: data.timeout_delay || 3600,
                 algorithm_suite: data.algorithm_suite || "AES-128-CTR",
+                precontract_variant: normalizePreContractVariant(
+                    data.precontract_variant
+                ),
                 file: preOut.file || preOut.ciphertext || "",
                 file_path: filePath || ""
             };
@@ -260,6 +265,9 @@ export async function PUT(req: Request) {
             // Standard format (should no longer be used)
             contractData = data;
         }
+        contractData.precontract_variant = normalizePreContractVariant(
+            contractData.precontract_variant
+        );
         
         console.log("🔍 Contract data to insert:", JSON.stringify(contractData, null, 2));
         
@@ -271,12 +279,13 @@ export async function PUT(req: Request) {
                 pk_buyer, pk_vendor, price, num_blocks, 
                 num_gates, commitment, tip_completion, tip_dispute,
                 protocol_version, timeout_delay, algorithm_suite,
+                precontract_variant,
                 accepted
             ) VALUES (
                 ?, ?,
                 ?, ?, ?, ?,
                 ?, ?, ?, ?,
-                ?, ?, ?,
+                ?, ?, ?, ?,
                 0
             );`);
             result = stmt.run(
@@ -292,7 +301,8 @@ export async function PUT(req: Request) {
                 contractData.tip_dispute,
                 contractData.protocol_version,
                 contractData.timeout_delay,
-                contractData.algorithm_suite
+                contractData.algorithm_suite,
+                contractData.precontract_variant
             );
         } catch (dbError: any) {
             console.error("❌ Error inserting into database:", dbError);

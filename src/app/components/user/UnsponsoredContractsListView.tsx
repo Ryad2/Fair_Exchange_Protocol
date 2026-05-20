@@ -2,6 +2,7 @@
 
 import Button from "../common/Button";
 import { useEffect, useState } from "react";
+import { preContractVariantLabel } from "@/app/lib/protocol-variants";
 
 type Contract = {
     id: number;
@@ -14,6 +15,7 @@ type Contract = {
     protocol_version: number;
     timeout_delay: number;
     algorithm_suite: string;
+    precontract_variant?: string;
     accepted: number;
     sponsor: string;
     optimistic_smart_contract?: string;
@@ -74,22 +76,28 @@ export default function UnsponsoredContractsListView({
                 <table className="w-full table-fixed border-collapse">
                     <thead>
                         <tr className="border-b border-black text-left font-medium">
-                            <th className="p-2 w-1/3">ID</th>
-                            <th className="p-2 w-1/3">Tip</th>
-                            <th className="p-2 w-1/3"></th>
+                            <th className="p-2 w-1/4">ID</th>
+                            <th className="p-2 w-1/4">Tip</th>
+                            <th className="p-2 w-1/4">Mode</th>
+                            <th className="p-2 w-1/4"></th>
                         </tr>
                     </thead>
                     <tbody>
-                        {contracts.map((c, i) => (
+                        {contracts.map((c) => (
                             <tr
                                 key={c.id}
                                 className="even:bg-gray-200 border-b border-black h-15"
                             >
-                                <td className="p-2 w-1/3">{c.id}</td>
-                                <td className="p-2 w-1/3">
+                                <td className="p-2 w-1/4">{c.id}</td>
+                                <td className="p-2 w-1/4">
                                     {c.tip_completion}
                                 </td>
-                                <td className="p-2 w-1/3 text-center">
+                                <td className="p-2 w-1/4">
+                                    {preContractVariantLabel(
+                                        c.precontract_variant
+                                    )}
+                                </td>
+                                <td className="p-2 w-1/4 text-center">
                                     <Button
                                         label="Delete"
                                         onClick={() => {

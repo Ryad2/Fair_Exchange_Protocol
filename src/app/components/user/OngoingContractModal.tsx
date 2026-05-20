@@ -42,6 +42,7 @@ import init, {
     hpre_v2,
     make_argument,
 } from "@/app/lib/crypto_lib";
+import { preContractVariantLabel } from "@/app/lib/protocol-variants";
 
 interface OngoingContractModalProps {
     onClose: () => void;
@@ -1330,6 +1331,10 @@ export default function OngoingContractModal({
                     <>
                         <div>
                             <strong>Sponsor:</strong> {sponsor}
+                        </div>
+                        <div>
+                            <strong>Transaction mode:</strong>{" "}
+                            {preContractVariantLabel(contract.precontract_variant)}
                         </div>
                         <div>
                             <strong>Buyer dispute sponsor:</strong> {bSponsor}

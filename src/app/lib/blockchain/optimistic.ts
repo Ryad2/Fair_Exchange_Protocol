@@ -28,6 +28,7 @@ import {
 import { keccak256, getBytes, toBeHex } from "ethers";
 import { toRlp, concatHex, type Hex } from "viem";
 import { BUNDLER_URL } from "./config";
+import type { PreContractVariantName } from "../protocol-variants";
 import {
     Contract,
     ContractFactory,
@@ -42,12 +43,6 @@ export type HardcodedSha256CircuitOptions = {
     plaintextLength: bigint | number | string;
     ciphertextIv: string;
 };
-
-export type PreContractVariantName =
-    | "normal"
-    | "no_S_deposit"
-    | "S_equals_B"
-    | "S_equals_V";
 
 export type Phase3VariantOptions = {
     preContractVariant?: PreContractVariantName;

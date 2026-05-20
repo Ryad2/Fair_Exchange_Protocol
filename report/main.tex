@@ -1,0 +1,55 @@
+\documentclass[11pt,a4paper,twoside,openright]{book}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{hyperref}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=black,
+  citecolor=black,
+  urlcolor=blue
+}
+
+\setlist[itemize]{leftmargin=1.6em}
+\setlist[enumerate]{leftmargin=1.8em}
+
+\newcommand{\sox}{\textsc{SOX}}
+\newcommand{\simsox}{\textsc{simSOX}}
+\newcommand{\ethereum}{\textsc{ETH}}
+
+\begin{document}
+
+\frontmatter
+\input{cover}
+
+\tableofcontents
+
+\mainmatter
+\input{chapters/01_introduction}
+
+\backmatter
+\begin{thebibliography}{9}
+
+\bibitem{sox2026}
+Anonymous Author(s).
+\newblock \emph{Sponsored Fair Exchange}.
+\newblock Manuscript provided as project reference, 2026.
+
+\bibitem{hana2025}
+Hana El Moutaoukil.
+\newblock \emph{Sponsored Fair Exchange: Implementation}.
+\newblock Semester project report, EPFL/LASEC, September 2025.
+
+\end{thebibliography}
+
+\end{document}

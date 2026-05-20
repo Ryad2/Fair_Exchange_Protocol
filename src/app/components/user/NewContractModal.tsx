@@ -7,6 +7,11 @@ import FormTextField from "../common/FormTextField";
 import FormSelect from "../common/FormSelect";
 import FormFileInput from "../common/FormFileInput";
 import { isAddress } from "ethers";
+import {
+    normalizePreContractVariant,
+    PRECONTRACT_VARIANT_OPTIONS,
+    type PreContractVariantName,
+} from "@/app/lib/protocol-variants";
 
 interface NewContractModalProps {
     onClose: () => void;
@@ -26,6 +31,8 @@ export default function NewContractModal({
     const [version, setVersion] = useState("0");
     const [timeoutDelay, setTimeoutDelay] = useState("");
     const [algorithms, setAlgorithms] = useState("default");
+    const [preContractVariant, setPreContractVariant] =
+        useState<PreContractVariantName>("normal");
     const [file, setFile] = useState<FileList | null>();
 
     // Spécifique mode Electron : on veut une seule fenêtre de sélection
@@ -109,6 +116,7 @@ export default function NewContractModal({
                         protocol_version: version,
                         timeout_delay: timeoutDelay,
                         algorithm_suite: algorithms,
+                        precontract_variant: preContractVariant,
                     }),
                 });
 
@@ -214,6 +222,7 @@ export default function NewContractModal({
             formData.append("protocol_version", version);
             formData.append("timeout_delay", timeoutDelay);
             formData.append("algorithm_suite", algorithms);
+            formData.append("precontract_variant", preContractVariant);
             formData.append("file", file[0]);
 
             const response_raw = await fetch("/api/precontracts", {
@@ -337,6 +346,17 @@ export default function NewContractModal({
                 >
                     Timeout delay (s)
                 </FormTextField>
+
+                <FormSelect
+                    id="precontract-variant"
+                    value={preContractVariant}
+                    onChange={(value) =>
+                        setPreContractVariant(normalizePreContractVariant(value))
+                    }
+                    options={PRECONTRACT_VARIANT_OPTIONS}
+                >
+                    Transaction mode
+                </FormSelect>
 
                 <FormSelect
                     id="algorithms"

@@ -6,6 +6,7 @@ import OngoingContractModal from "./OngoingContractModal";
 import { getNextTimeout, getState } from "@/app/lib/blockchain/common";
 import { endDisputeTimeout } from "@/app/lib/blockchain/dispute";
 import { endOptimisticTimeout } from "@/app/lib/blockchain/optimistic";
+import { preContractVariantLabel } from "@/app/lib/protocol-variants";
 
 export type Contract = {
     id: number;
@@ -18,6 +19,7 @@ export type Contract = {
     protocol_version: number;
     timeout_delay: number;
     algorithm_suite: string;
+    precontract_variant?: string;
     sponsor: string;
     commitment: string;
     num_blocks: number;
@@ -160,16 +162,17 @@ export default function OngoingContractsListView({
                     <thead>
                         <tr className="border-b border-black text-left font-medium">
                             <th className="p-2 w-1/10">ID</th>
-                            <th className="p-2 w-5/10">
+                            <th className="p-2 w-4/10">
                                 Smart contract address
                             </th>
+                            <th className="p-2 w-1/10">Mode</th>
                             <th className="p-2 w-2/10">State</th>
                             <th className="p-2 w-1/10"></th>
                             <th className="p-2 w-1/10"></th>
                         </tr>
                     </thead>
                     <tbody>
-                        {contracts.map((c, i) => {
+                        {contracts.map((c) => {
                             if (
                                 (!c.dispute_smart_contract && c.state == 5n) ||
                                 (c.dispute_smart_contract && c.state == 7n)
@@ -182,10 +185,15 @@ export default function OngoingContractsListView({
                                     className="even:bg-gray-200 border-b border-black h-15"
                                 >
                                     <td className="p-2 w-1/10">{c.id}</td>
-                                    <td className="p-2 w-5/10 text-wrap">
+                                    <td className="p-2 w-4/10 text-wrap">
                                         {c.dispute_smart_contract
                                             ? c.dispute_smart_contract
                                             : c.optimistic_smart_contract}
+                                    </td>
+                                    <td className="p-2 w-1/10 text-wrap">
+                                        {preContractVariantLabel(
+                                            c.precontract_variant
+                                        )}
                                     </td>
                                     <td className="p-2 w-2/10 text-wrap">
                                         {displayState(c)}
