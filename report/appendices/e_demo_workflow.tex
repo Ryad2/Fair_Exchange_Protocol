@@ -1,0 +1,73 @@
+\chapter{Demo Workflow}
+\label{app:demo-workflow}
+
+This appendix gives a concise script for reproducing the demonstration shown by the
+application. The recommended demonstration file size is 4 MiB, because it is large enough
+to demonstrate real off-chain processing while remaining practical for a screen recording.
+
+\section{Preparation}
+
+\begin{verbatim}
+mkdir -p demo_files
+truncate -s 4M demo_files/demo_4MiB.bin
+\end{verbatim}
+
+Start the services in separate terminals:
+
+\begin{verbatim}
+cd src/hardhat && npx hardhat node
+./deploy-all.sh
+./run-alto.sh
+npm run dev
+\end{verbatim}
+
+Then open \url{http://localhost:3000}.
+
+\section{Optimistic exchange demonstration}
+
+\begin{enumerate}
+  \item Log in or select the vendor role in the local development UI.
+  \item Create a new precontract.
+  \item Select the buyer address.
+  \item Upload \path{demo_files/demo_4MiB.bin}.
+  \item Keep the normal sponsored mode for the standard full optimistic demo, or select
+  \simsox{}, \(S=B\), or \(S=V\) when demonstrating the new optimistic variants.
+  \item Submit the precontract and wait for native precontract generation.
+  \item Switch to the buyer role.
+  \item Open the non-accepted precontract.
+  \item Click ``Verify commitment'' before accepting.
+  \item Accept the precontract; the ciphertext is downloaded by the buyer interface.
+  \item Switch to the sponsor role and sponsor/deploy the optimistic account.
+  \item Switch to the buyer role and send the payment.
+  \item Switch to the vendor role and send the key.
+  \item Verify that the optimistic contract reaches the complete state.
+\end{enumerate}
+
+This demonstration covers the honest path. It is the clearest video workflow because it
+shows the real application, the precontract generation, the buyer verification button, the
+ciphertext transfer, contract deployment, payment, key release, and completion.
+
+\section{Dispute demonstration note}
+
+The dispute path is better demonstrated through the Hardhat benchmarks than through the
+current UI. The benchmark tests execute the challenge rounds, Step 8, and finalization in a
+controlled way with reproducible gas receipts. If a live dispute video is required, it
+should use a small file first, because preparing and submitting dispute witnesses manually
+is more fragile than the optimistic UI flow.
+
+\section{Recording notes}
+
+For a presentation video, the recommended structure is:
+
+\begin{enumerate}
+  \item Briefly state that the demo uses a local Hardhat network and a 4 MiB file.
+  \item Show the vendor creating the precontract.
+  \item Show the buyer verifying and accepting the precontract.
+  \item Show the sponsor deploying the optimistic contract.
+  \item Show the buyer payment and vendor key release.
+  \item End on the complete state and mention that gas/dispute benchmarks are reproduced
+  by the test suite rather than by hand in the UI.
+\end{enumerate}
+
+This avoids overclaiming: the video demonstrates the application workflow, while the
+quantitative dispute claims remain tied to reproducible tests.

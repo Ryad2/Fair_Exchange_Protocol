@@ -1,14 +1,7 @@
 import { expect } from "chai";
 import hre from "hardhat";
 import { parseEther } from "ethers";
-import {
-    bytes_to_hex,
-    compute_precontract_values_v2,
-    compute_proofs_v2,
-    evaluate_circuit_v2_wasm,
-    hpre_v2,
-    initSync,
-} from "../../../app/lib/crypto_lib/crypto_lib";
+import { pathToFileURL } from "node:url";
 
 const { ethers } = hre;
 
@@ -61,6 +54,32 @@ type CurrentMeasurement = {
 };
 
 let wasmInitialized = false;
+let cryptoLibLoaded = false;
+let bytes_to_hex: any;
+let compute_precontract_values_v2: any;
+let compute_proofs_v2: any;
+let evaluate_circuit_v2_wasm: any;
+let hpre_v2: any;
+let initSync: any;
+
+async function loadCryptoLibOnce() {
+    if (cryptoLibLoaded) {
+        return;
+    }
+
+    const { join } = await import("node:path");
+    const cryptoLibPath = pathToFileURL(
+        join(__dirname, "../../../app/lib/crypto_lib/crypto_lib.js")
+    ).href;
+    const cryptoLib = await (0, eval)(`import(${JSON.stringify(cryptoLibPath)})`);
+    bytes_to_hex = cryptoLib.bytes_to_hex;
+    compute_precontract_values_v2 = cryptoLib.compute_precontract_values_v2;
+    compute_proofs_v2 = cryptoLib.compute_proofs_v2;
+    evaluate_circuit_v2_wasm = cryptoLib.evaluate_circuit_v2_wasm;
+    hpre_v2 = cryptoLib.hpre_v2;
+    initSync = cryptoLib.initSync;
+    cryptoLibLoaded = true;
+}
 
 function makeFile(length: number) {
     const file = new Uint8Array(length);
@@ -112,6 +131,7 @@ async function initWasmOnce() {
     if (wasmInitialized) {
         return;
     }
+    await loadCryptoLibOnce();
     const { readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
     const wasmPath = join(__dirname, "../../../app/lib/crypto_lib/crypto_lib_bg.wasm");

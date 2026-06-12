@@ -72,6 +72,9 @@ src/hardhat/deployed-contracts.json
 *.aux
 *.log
 *.out
+*.toc
+*.nav
+*.snm
 *.synctex.gz
 *.fdb_latexmk
 *.fls

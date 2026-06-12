@@ -1,0 +1,287 @@
+\chapter{Limitations and Future Work}
+\label{chap:limitations-future-work}
+
+\section{Current prototype limitations}
+
+The final implementation is a research prototype. It is substantially more complete and
+more measurable than the initial implementation, but it should not be presented as a
+production-ready fair-exchange system. The prototype runs on a local development stack,
+uses local accounts, stores artifacts through a local backend, and measures gas on a local
+Hardhat network. These choices are appropriate for a semester project focused on protocol
+variants and gas measurements, but they leave several engineering and security tasks open.
+
+The first limitation is the user model. The application uses predefined development
+addresses and role selection through the local interface. It does not implement a
+production authentication flow where the vendor, buyer, sponsor, and dispute sponsors
+connect through real wallets and explicitly sign every role-dependent action. Some
+authorization checks are implemented on-chain, and the buyer-side dispute sponsor
+authorization is bound to the chain id and contract address. However, the surrounding user
+management remains a proof-of-concept environment.
+
+The second limitation is the backend model. The implementation stores ciphertext artifacts,
+precontract data, and local metadata through the application backend and SQLite database.
+The on-chain commitments make tampering detectable, but the backend is still an
+availability dependency. If a production deployment wants to avoid this dependency, it
+would need a more robust artifact distribution layer, for example content-addressed
+storage, replication, or a clearly specified off-chain availability protocol.
+
+The third limitation is the separation between the optimized paths and the inherited
+account-abstraction path. The normal direct contract keeps the ERC-4337-compatible behavior
+of the initial implementation. The clone-based optimized variants are measured through
+direct calls and are intentionally thinner. This is the right choice for gas optimization,
+but it means that the project does not yet provide one unified production interface where
+all optimized variants are available through the same wallet and bundler flow.
+
+The fourth limitation is proof coverage. The test suite covers the main targeted scenarios:
+normal optimistic execution, the three main optimistic variants, self-sponsored disputes,
+hardcoded \(\mathsf{SHA256}\), same-scope gas comparisons, and the 1 GiB hardcoded
+benchmark. This is strong evidence for the implemented paths, but it is not a formal proof
+of the Solidity implementation. A production version would require fuzzing, invariant
+tests, adversarial tests around malformed proofs, and preferably a formal specification of
+the state machines and commitment formats.
+
+\section{Verification workflow limitations}
+
+The implementation contains verification mechanisms, but they are not yet a complete
+production verification workflow. This distinction is important. The buyer-facing
+precontract modal exposes a ``Verify commitment'' action that calls
+\path{/api/precontracts/verify}. That route invokes the native
+\texttt{check\_precontract\_cli} binary and recomputes the public commitment data from the
+stored ciphertext, description, commitment, and opening value. Thus, the codebase does
+include a concrete verification path for the received precontract data.
+
+However, this verification is not enforced as a backend precondition for acceptance. The
+acceptance route \path{/api/precontracts/accept} currently sets the contract as accepted
+from the submitted identifier. It does not require a previously stored successful
+verification result, nor does it bind the acceptance transaction to a verified
+\(h_{\mathit{ct}}\) and \(h_{\mathit{circuit}}\) record. In the proof-of-concept UI, the
+buyer is expected to click the verification button before accepting. In a production
+version, acceptance should be blocked unless verification succeeds and the verified values
+are persisted and bound to the exchange.
+
+The same limitation exists in the dispute workflow. The contracts verify the submitted
+commitments and witnesses on-chain during Step 8, and the native benchmarks generate the
+data needed for complete measured disputes. Nevertheless, the web API for proof generation
+is still partial: \path{/api/proofs/compute} currently supports only state 4
+(\texttt{WaitVendorDataRight}). It is therefore not a complete production API for every
+possible Step 8 state. A full implementation should support all Step 8 cases used by the
+protocol and should make the actor-side local verification explicit before the actor signs
+the next dispute action.
+
+This also affects runtime interpretation. The 1 GiB measurements include native generation
+of buyer-side \(hpre_i\) values and the on-chain \texttt{giveOpinion} calls, but they do
+not isolate a complete production UI workflow in which \(V\) locally recomputes every
+buyer response before deciding what to sign. For conservative protocol-level performance
+tables, such verification time should be counted for the verifying actor, even if the
+current benchmark does not expose it as a separate UI measurement.
+
+\section[Browser and WASM limits]{Browser and WebAssembly limitations for large files}
+
+One concrete outcome of the project is that the browser/WASM path is not the right path for
+very large files. The WebAssembly integration remains useful for the interface and for
+small or medium examples, but the large-file benchmarks rely on the native Rust CLI. This
+is not accidental. A 1 GiB exchange requires reading large files, encrypting them,
+constructing commitments, and generating dispute witnesses. Doing this inside a browser or
+browser-adjacent JavaScript runtime creates avoidable memory pressure and makes results
+less reliable.
+
+The measured 1 GiB path should therefore be described precisely: it is a native CLI
+benchmark integrated with the Solidity dispute contracts, not a complete browser-based
+1 GiB user experience. This is still an important result, because it demonstrates that the
+protocol artifacts and the on-chain dispute can be produced and checked at this scale. It
+also clarifies the architecture that a future large-file application should use.
+
+A natural future direction is to make the native path a first-class backend worker. Instead
+of asking the frontend to handle large cryptographic computations directly, the interface
+could delegate precontract generation, buyer-side \(hpre_i\) computation, and dispute
+witness generation to a native service. The frontend would then orchestrate the exchange
+and display progress, while the native worker would handle file streaming and cryptographic
+artifact generation.
+
+This future work should also include streaming and incremental verification. The current
+large-file benchmark proves feasibility, but it is still benchmark-oriented. A production
+implementation would need careful progress reporting, resumability, cancellation, disk
+space management, and checks that intermediate artifacts are not corrupted or mismatched
+with the on-chain commitments.
+
+\section[Registry-first architecture]{Toward a registry or factory-first architecture}
+
+The final implementation already introduces a factory for clone-based optimistic variants,
+but it does not fully redesign the protocol around a registry. Each exchange still gets a
+dedicated optimistic account or clone, and disputes still deploy dispute-specific accounts.
+This is a strong improvement over redeploying full optimistic bytecode every time, but it
+is not necessarily the end point of the architecture.
+
+A more radical future architecture would use a factory-first or registry-first model. In
+such a design, reusable contracts would be deployed once, and each exchange would be
+represented by an \texttt{exchangeId} in a shared registry or by a minimal deterministic
+proxy. The objective would be to reduce repeated deployment costs even further and make
+Step 1+2 fusion easier to express. This would be a larger redesign than the one carried out
+in this project, because state layout, role authorization, dispute deployment, and artifact
+references would all need to be specified around the registry.
+
+The main advantage would be gas efficiency and clearer lifecycle management. A registry can
+avoid deploying large bytecode for every exchange and can make it easier to reuse a sponsor
+approval if a buyer abandons the flow before paying. It could also centralize event
+emission, indexing, and off-chain discovery of exchanges.
+
+The main risk is complexity. A shared registry must avoid cross-exchange state confusion,
+must isolate deposits correctly, and must keep the dispute logic auditable. The current
+clone architecture is a conservative intermediate step: it captures most of the deployment
+gain while keeping each exchange isolated. Moving to a registry should therefore be treated
+as a separate design task, not as a small patch.
+
+\section[Step 1+2 fusion for S not equal to B]{Step 1+2 fusion for \(S \neq B\)}
+
+The project implemented the trivial Step 1+2 fusion for \(S=B\): the buyer is also the
+initial sponsor, so deployment and buyer payment can be combined. A more difficult and
+interesting future direction is fusing Step 1+2 when \(S \neq B\). The goal is to avoid a
+situation where \(S\) deploys or initializes a contract and then loses that deployment if
+\(B\) never pays.
+
+One possible design is to move the loading of the precontract parameters from Step 1 to
+Step 2. The sponsor \(S\) would sign an approval for a specific set of precontract
+parameters. Then \(B\) would submit, in one transaction, the buyer payment, the precontract
+parameters, and the signature from \(S\). If \(B\) does not submit this transaction, the
+sponsor has not locked a dedicated contract instance for that buyer. The same idea could be
+combined with deterministic factory deployment or with a registry entry created only when
+the buyer arrives with a valid approval.
+
+This direction has to be studied carefully with ERC-4337. If a bundler or paymaster is
+expected to sponsor the transaction, it must be able to validate the UserOperation before
+execution. That means the signature from \(S\), the expected buyer payment, the selected
+precontract parameters, and the target deterministic address or registry entry must all be
+checkable from the UserOperation data. If this validation requires executing state changes
+that are only available after deployment, the design becomes incompatible with a clean
+pre-sponsorship check.
+
+For this reason, Step 1+2 fusion for \(S \neq B\) is best treated as future work on the
+deployment architecture. It is closely connected to the registry/factory-first direction.
+The current implementation provides the measurements and specialized contracts needed to
+motivate this work, but it does not implement the full signed-precontract deployment
+protocol.
+
+\section{Cleaner circuit encoding}
+
+The inherited V2 circuit encoding is functional for the generated circuits used in the
+benchmarks, but it is not the cleanest format for a final protocol specification. Each gate
+is encoded on 64 bytes with an opcode, son indices, parameters, and zero padding. Some gate
+families have variable arity. In particular, SHA2 can use one or two inputs, and CONST can
+use zero or one input. In the current format, arity is not encoded as an explicit field or
+as a distinct opcode family.
+
+This creates avoidable ambiguity at the specification level. Even if the current generated
+circuits and parser checks behave consistently for the tested paths, a clean format should
+not rely on inferring arity from padding conventions or from the number of witness values
+provided in Step 8. A paper-ready and audit-ready version should make the interpretation of
+every 64-byte gate canonical.
+
+A future V3 circuit format should therefore introduce either explicit arity or distinct
+opcodes. For example, it could separate:
+
+\begin{itemize}
+  \item the first SHA-256 compression gate from subsequent SHA-256 compression gates;
+  \item CONST-without-input from CONST-with-input;
+  \item any future gate family whose interpretation depends on optional sons.
+\end{itemize}
+
+This change would affect the Rust circuit generator, the Solidity evaluator, the
+hardcoded \(\mathsf{SHA256}\) reconstruction library, the test vectors, and the computation
+of \(h_{\mathit{circuit}}\). It was intentionally not patched during the gas-optimization
+phase because it would have changed the commitment format and made comparison with the
+initial implementation less direct. It is nevertheless one of the most important future
+security cleanups.
+
+\section{Merkle domain separation}
+
+The accumulator construction used for \(h_{\mathit{circuit}}\), \(h_{\mathit{ct}}\), and
+\(hpre\) should also be revised in a future version. The current implementation uses
+\(\mathrm{keccak256}\) for leaves and internal nodes without an explicit domain separator,
+and lonely nodes at an odd level can be copied upward. This convention is inherited from
+the existing implementation and is mirrored by the Solidity verifier for compatibility with
+the generated proofs.
+
+The limitation is structural. If leaves and internal nodes use the same hash domain, a
+64-byte encoded leaf has the same input length as the concatenation of two 32-byte child
+hashes. This creates a classical ambiguity risk in Merkle-style constructions. Similarly,
+copying a lonely node upward can make different tree shapes share the same root unless the
+proof format completely rules out the ambiguity.
+
+A cleaner accumulator version should domain-separate leaves and internal nodes. A simple
+candidate is:
+
+\[
+\begin{aligned}
+  \mathsf{leaf}_i =
+  \mathrm{keccak256}(0x00 \parallel \mathsf{encodedLeaf}_i), \\
+  \mathsf{node} =
+  \mathrm{keccak256}(0x01 \parallel \mathsf{left} \parallel \mathsf{right}).
+\end{aligned}
+\]
+
+It should also replace copy-up behavior with an explicit single-child rule, for example a
+separate prefix for promoted nodes. This change must be applied consistently to all
+accumulators and proofs. Like the circuit encoding change, it would create a new commitment
+version. It is therefore future work rather than a safe last-minute patch to the measured
+implementation.
+
+\section{Wallet integration}
+
+The current interface is a development interface. It allows the project to demonstrate the
+protocol flow, select roles, create precontracts, accept exchanges, and trigger contract
+actions. It does not yet provide a production wallet experience.
+
+A production wallet integration should replace local role selection by explicit wallet
+authentication. Each actor should connect through a wallet, see the exact action being
+signed, and sign the relevant message or transaction. For off-chain authorizations, the
+signed payload should include the chain id, contract address or deterministic deployment
+parameters, exchange identifier, role, amount, deadline, and any commitment being approved.
+This would reduce ambiguity and make signatures auditable by the user.
+
+Wallet integration also matters for the dispute path. During a dispute, the buyer and
+vendor must understand whether they are submitting a challenge response, giving an opinion,
+or providing Step 8 witnesses. A production interface should expose the protocol state in
+human-readable form and prevent users from signing stale or wrong-state actions.
+
+This work is mostly engineering, but it is security-relevant. A fair-exchange protocol can
+be correct on-chain and still be unsafe in practice if users cannot reliably understand
+what they are authorizing. The current implementation is sufficient for experiments and
+demonstrations; a deployed system would require this layer.
+
+\section{Production deployment considerations}
+
+A production deployment would require several additional checks beyond the scope of the
+semester project. First, the contracts should be audited with the final commitment format
+fixed. The current code was tested extensively for the targeted scenarios, but an audit
+would need to review all state transitions, payout paths, timeout behavior, malformed proof
+inputs, and edge cases around deposits and sponsor roles.
+
+Second, the deployment model should be finalized before optimization continues. The final
+project implementation already shows that deploying one large contract per exchange is not
+ideal. Future work should decide whether the long-term architecture is clone-based,
+registry-based, or a hybrid. That decision affects gas, upgrade strategy, indexing,
+precontract signatures, and ERC-4337 compatibility.
+
+Third, the timeout and fee parameters should be calibrated for the target chain. Local
+Hardhat measurements do not capture public-network congestion, fee volatility, block time
+variance, or MEV/mempool behavior. A production system would need conservative timeouts and
+clear rules for who bears gas risk in the optimistic path and in dispute.
+
+Fourth, artifact availability must be specified. The protocol can detect tampering through
+commitments, but it still needs the ciphertext and witness data to be available when an
+actor wants to verify or dispute an exchange. A production deployment should therefore
+define where artifacts are stored, how they are addressed, how they are replicated, and how
+users recover from backend unavailability.
+
+Finally, the next gas targets are now well identified. The optimistic path has already been
+reduced substantially through clones. The remaining dominant on-chain costs are dispute
+deployment, \texttt{triggerDispute}, and Step 8 evaluation, especially for AES-related gates
+and the associated \(h_{\mathit{ct}}\)/\(hpre\) proofs. Future optimization should focus on
+these components rather than reintroducing a monolithic contract with more flags.
+
+In summary, the project reached the intended research-prototype milestone: it implemented
+and measured the main variants, corrected the architecture after the monolithic negative
+result, and demonstrated a 1 GiB hardcoded dispute path. The next version should not simply
+add more patches. It should clean the cryptographic formats, settle the deployment
+architecture, integrate real wallets, and then optimize the remaining dispute bottlenecks
+on top of that cleaner foundation.

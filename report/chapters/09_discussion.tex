@@ -1,0 +1,223 @@
+\chapter{Discussion}
+\label{chap:discussion}
+
+\section{What actually reduced gas}
+
+The experimental results show that the main gas reduction did not come from a single
+micro-optimization. It came from separating concerns that had been merged in the first
+implementation of the variants. The intermediate monolithic contracts were useful because they
+made all variants executable, but they also deployed mutually exclusive logic together. The
+final implementation reduced gas by moving from this ``one contract with many flags'' model
+to specialized contracts whose bytecode matches the selected protocol mode.
+
+The clearest example is the optimistic path. In the initial implementation, each exchange
+deployed a full optimistic account. In the final clone-based architecture, the expensive
+implementation contracts are deployed once and each new exchange only creates a minimal
+clone. This changes the gas model from a repeated full deployment to a fixed infrastructure
+cost plus a low marginal cost. As shown in Chapter~\ref{chap:experimental-results}, the
+measured marginal optimistic costs are \(500,720\) gas for \texttt{no\_S\_deposit},
+\(516,349\) gas for \(S=B\), and \(556,309\) gas for \(S=V\). These are the strongest
+honest-path gains of the project.
+
+The second real reduction comes from removing protocol steps that are unnecessary in some
+role configurations. The \(S=B\) case fuses the sponsor deployment/payment role with the
+buyer role in the optimistic phase. The \(S_B=B, S_V=V\) dispute case removes the need to
+repeat the challenge loop through Step 9 with another sponsor configuration. This is not a
+low-level Solidity trick. It is a protocol-level simplification reflected in the
+implementation. The measured variable dispute cost after the trigger is almost halved in
+the self-sponsored case, which matches the expected reduction from avoiding repeated
+Step 7--8 iterations.
+
+The third reduction comes from the hardcoded \(\mathsf{SHA256}\) dispute path. Here, the
+contract does not accept a generic circuit gate and a proof \(\pi_1\) as the source of
+truth. Instead, it reconstructs the expected gate from the public metadata of the
+hardcoded \(desc=\mathsf{SHA256}(x)\) circuit. This removes the generic
+\(h_{\mathit{circuit}}\) membership proof from Step 8. Locally, this saves \(62,542\) gas
+on the 16 KiB Step 8 measurement and about \(166,000\)--\(169,000\) gas on the isolated
+1 GiB \(h_{\mathit{circuit}}\) check. In the final specialized implementation, the
+hardcoded path also reduces the dispute deployer cost, which is why the full hardcoded
+16 KiB dispute improves much more than the isolated \(\pi_1\) saving alone.
+
+The main lesson is that the successful optimizations are structural. They either avoid
+deploying unused bytecode, avoid executing unnecessary protocol loops, or remove a generic
+proof obligation when the circuit is already determined by the precontract.
+
+\section{What did not reduce gas as expected}
+
+Several ideas were useful conceptually but did not immediately reduce gas in the first
+implementation. The most important example is the intermediate monolithic contract. Adding
+\texttt{no\_S\_deposit}, \(S=B\), \(S=V\), self-sponsored disputes, and hardcoded
+\(\mathsf{SHA256}\) as flags inside the existing contracts made the behavior configurable,
+but it increased deployment gas. The honest optimistic path rose from \(2,300,201\) gas in
+the initial implementation to \(3,046,782\) gas in the intermediate monolithic implementation.
+This result was not a measurement error: it was a consequence of deploying more code per
+exchange.
+
+The first hardcoded measurements also looked weaker than expected when they were read as
+full-dispute totals. This was because the hardcoded change affects a specific part of
+Step 8, while a complete dispute also includes dispute deployment, challenge rounds,
+Merkle proofs for \(h_{\mathit{ct}}\) and \(hpre\), gate evaluation, and finalization. If
+one measures only the full total, the removal of \(\pi_1\) is diluted by the remaining
+costs. The local hardcoded saving exists, but it is not the only component of the full
+dispute. This explains why the hardcoded optimization must be reported both locally and
+end-to-end.
+
+Another important point is that the generic Step 8 verifier was not fundamentally
+optimized in the normal non-hardcoded path. In the 4 MiB same-scope comparison, the final
+specialized architecture reduces the overall dispute initialization cost because the
+deployment architecture is better, but the generic \texttt{submitCommitment} cost remains
+close to the monolithic implementation. Therefore, the final implementation improves the
+architecture around the verifier more than it improves the generic verifier itself.
+
+Finally, ERC-4337 support should not be described as a gas optimization in this project.
+The inherited account-abstraction path is useful to demonstrate sponsored interactions and
+UserOperations, but it introduces operational components such as the bundler and
+EntryPoint. The specialized clone measurements deliberately use a simpler direct-call path.
+This separation avoids claiming that account abstraction itself reduces the protocol gas.
+In this implementation, the gas reductions come from specialization and clone deployment,
+not from ERC-4337.
+
+\section{Cost relocation versus true optimization}
+
+One subtle point in the measurements is the difference between relocating a cost and
+removing a cost. The clone architecture relocates part of the optimistic deployment cost
+from every exchange to a one-time infrastructure deployment. This is a real practical gain
+when multiple exchanges share the same infrastructure, but it is not the same as making the
+first deployment free. The factory and implementation contracts cost \(6,584,001\) gas in
+total. That cost must be paid once before the marginal per-exchange savings become
+available.
+
+This is still meaningful for a protocol implementation. In the initial architecture, the
+same optimistic bytecode is redeployed for every exchange. In the final architecture, the
+implementation bytecode is deployed once and reused. The marginal cost is the relevant
+quantity for a deployed service, while the fixed infrastructure cost is relevant for the
+first setup. The report therefore separates these two costs instead of adding the factory
+deployment to every exchange or ignoring it completely.
+
+The hardcoded \(\mathsf{SHA256}\) mode is different. It does not merely move a cost from
+on-chain to an earlier deployment step. It removes the need to verify \(\pi_1\) for
+\(h_{\mathit{circuit}}\) in the hardcoded case, because the contract can reconstruct the
+expected circuit gate. However, it does not remove the need for witnesses altogether. The
+contract still needs authenticated values for ciphertext blocks and intermediate
+accumulators. These values are provided externally and verified against \(h_{\mathit{ct}}\)
+or \(hpre\). Thus, hardcoding removes a specific generic proof obligation; it does not make
+Step 8 free.
+
+The off-chain large-file work is another example. Moving precontract generation and dispute
+witness computation to the native Rust CLI is not an on-chain gas optimization. It is a
+practical scalability improvement. It makes 1 GiB experiments possible without relying on a
+browser or a JavaScript/WASM memory model. The on-chain contract still verifies the
+submitted commitments and witnesses; the CLI only makes it feasible to generate the data
+needed by the protocol.
+
+These distinctions matter because a fair comparison must compare the same scope. A result
+can be correct and still misleading if it mixes a fixed deployment cost with a marginal
+per-exchange cost, or a local Step 8 saving with a complete dispute total. The final
+experimental chapter was structured around this lesson.
+
+\section{Trade-offs of specialization}
+
+Specialization reduces gas, but it also introduces engineering trade-offs. The final
+architecture contains more contracts than the initial implementation: factory, clone
+implementations, direct variants, normal dispute accounts, self-sponsored dispute accounts,
+hardcoded dispute accounts, deployer libraries, and verifier libraries. This makes the
+bytecode paid by each exchange smaller, but it makes the source tree larger and increases
+the number of paths that must be tested.
+
+This trade-off is acceptable in this project because the variants are protocol modes, not
+arbitrary runtime options. The mode \texttt{no\_S\_deposit}, \(S=B\), and \(S=V\) is known
+at precontract time. The hardcoded \(\mathsf{SHA256}\) mode is also fixed before dispute.
+Therefore, there is no reason to deploy a contract that contains all possible branches for
+one exchange. Specialized contracts match the protocol structure more closely than a single
+universal account.
+
+The trade-off is more delicate for modes that are only known after Step 4, such as
+\(S_B=B\) and \(S_V=V\). These cannot be chosen at the initial precontract deployment in
+the general case. The implementation therefore specializes them at dispute deployment time.
+This is why the optimistic contract keeps enough logic to select the correct dispute
+deployer when the dispute sponsor roles are known. This design follows the protocol timing:
+precontract-time facts are specialized early, dispute-time facts are specialized later.
+
+There is also a compatibility trade-off. The normal direct path preserves the inherited
+ERC-4337-compatible behavior. The clone variants are optimized for direct-call gas
+measurements and simplified execution. This means the final implementation does not claim
+that every optimized variant has the same account-abstraction integration as the normal
+path. This is a deliberate boundary: preserving all ERC-4337 logic inside every optimized
+clone would reintroduce the monolithic overhead that the project was trying to remove.
+
+The strongest argument in favor of specialization is that it also helped with mainnet code
+size constraints. The original generic dispute contract and deployer were close to or above
+the EVM bytecode size limit in some configurations. Splitting the hardcoded dispute account,
+deployer, and circuit library produced components below the limit. This is an architectural
+benefit as well as a gas benefit.
+
+\section{Practicality of large-file fair exchange}
+
+The project made large-file experiments concrete. The native 1 GiB benchmark executed a
+complete hardcoded dispute path up to the terminal state. This is important because the
+previous browser-oriented workflow was not a reliable way to handle such files. The final
+benchmark shows that the protocol implementation can generate large precontract artifacts,
+compute dispute witnesses, execute 26 challenge rounds, perform Step 8, and finalize.
+
+The result should nevertheless be interpreted carefully. The 1 GiB measurement is a
+controlled benchmark, not a production user experience. The file is processed by native
+Rust tooling, the blockchain is a local Hardhat network, and the measured transaction time
+does not include public-network latency or mempool behavior. The benchmark proves
+feasibility of the implemented cryptographic and on-chain path; it does not prove that the
+current UI is ready for production-scale 1 GiB disputes.
+
+The off-chain times are also significant. Preparing the 1 GiB precontract took
+22.42--48.70 seconds across repeated runs on the benchmark machine. Generating all
+\(hpre_i\) responses for the forced-left dispute took 9.47--11.92 seconds. These values are acceptable for an
+experimental proof of concept, but they are visible to users. They also show why the native
+CLI is necessary: the computation is not just a small frontend task.
+
+On-chain, the 1 GiB self-sponsored hardcoded path costs \(13,990,092\) gas in the measured
+complete scenario. This is not negligible, but it remains a concrete executed path rather
+than a theoretical estimate. With external sponsors and three Step 7--8 iterations, the
+measured total including the optimistic path is \(29,532,277\) gas. This larger value shows
+why self-sponsoring and avoiding unnecessary iterations matter in practice.
+
+The practical conclusion is therefore balanced. The implementation now handles 1 GiB
+experiments in a meaningful end-to-end way, but the current best path relies on the
+hardcoded \(\mathsf{SHA256}\) specialization and native tooling. A fully generic,
+browser-first, production-ready large-file fair exchange remains future work.
+
+\section{Lessons learned from the implementation}
+
+The first lesson is that implementation-level gas intuition is unreliable without
+same-scope measurements. Before the measurements were reorganized, several numbers looked
+contradictory because fixed infrastructure costs, marginal exchange costs, full dispute
+totals, and local Step 8 costs were mixed together. Once the scopes were separated, the
+results became coherent: monolithic flags increase deployment cost, clones reduce marginal
+honest-path cost, self-sponsoring reduces repeated loops, and hardcoding removes a specific
+generic proof.
+
+The second lesson is that protocol variants should be aligned with when information becomes
+available. The modes \(S=B\), \(S=V\), and \texttt{no\_S\_deposit} are determined at
+precontract time, so they can be deployed as distinct optimistic contracts. The modes
+\(S_B=B\) and \(S_V=V\) are known only after the buyer expresses dissatisfaction and the
+dispute sponsors are selected, so they belong in the dispute deployment decision. This
+timing distinction is important both for correctness and for gas optimization.
+
+The third lesson is that security review can change the interpretation of performance
+work. The hardcoded \(\mathsf{SHA256}\) path is not only a gas optimization; it also
+reduces reliance on the generic circuit encoding for that particular description. However,
+the review also identified inherited issues in the generic V2 circuit format and Merkle
+accumulator. These issues do not invalidate the measured gas improvements, but they show
+that a clean next version should update the commitment format, not only the gas
+architecture.
+
+The fourth lesson is that an implementation can be improved without hiding its limitations.
+The final version is better than the initial implementation on the main same-scope
+measurements, and it supports large-file benchmarks that were not practical in the browser.
+At the same time, it is still a research prototype with local accounts, a local backend,
+development-chain measurements, and an inherited generic encoding that deserves a new
+version. Stating these boundaries explicitly makes the results more credible, not weaker.
+
+Overall, the project moved the implementation from a functional but expensive
+one-contract-per-exchange prototype toward a more realistic architecture: reusable
+optimistic infrastructure, specialized modes, hardcoded dispute verification for
+\(\mathsf{SHA256}\), and native tooling for large files. The remaining work is now clearer:
+reduce the dominant dispute costs, clean the cryptographic encoding, and decide how far the
+factory/registry architecture should go in a future version.

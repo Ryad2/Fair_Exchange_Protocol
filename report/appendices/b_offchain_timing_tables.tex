@@ -1,0 +1,77 @@
+\chapter{Detailed Off-Chain Timing Tables}
+\label{app:offchain-timing-tables}
+
+This appendix gathers the off-chain timings that are used in the discussion of large-file
+execution. They are wall-clock timings on the benchmark machine, not gas measurements. The
+values are therefore useful for relative interpretation and reproducibility, but they are
+not protocol constants.
+
+\section{Native 1 GiB benchmark timings}
+
+\begin{table}[H]
+  \centering
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.30\linewidth}r>{\raggedright\arraybackslash}X}
+    \toprule
+    Measurement & Time & Interpretation \\
+    \midrule
+    Precontract CLI & 22.42--48.70 s & Vendor-side native preparation of ciphertext,
+    commitments, circuit metadata, and opening values. \\
+    Native dispute generation & 16.43--35.46 s & Aggregate native benchmark time for preparing
+    dispute data; not attributable to one actor only. \\
+    Total \(hpre_i\) generation & 9.47--11.92 s & Buyer-side generation of challenge responses
+    over 26 rounds in the forced-left benchmark. \\
+    Local Hardhat transactions & 0.30--0.56 s & Local transaction submission time in the test
+    environment; not a public-chain latency measurement. \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Observed off-chain timing ranges for repeated 1 GiB hardcoded benchmark runs.}
+  \label{tab:app-1gib-timings}
+\end{table}
+
+\section[First hpre rounds]{First forced-left \(hpre_i\) rounds}
+
+\begin{table}[H]
+  \centering
+  \begin{tabular}{rrr}
+    \toprule
+    Round & Challenge index \(i\) & Native \(hpre_i\) time \\
+    \midrule
+    0 & 16,777,219 & 4.58--6.04 s \\
+    1 & 8,388,610 & 2.23--2.46 s \\
+    2 & 4,194,305 & 1.17--1.33 s \\
+    3 & 2,097,153 & 0.60--0.71 s \\
+    4 & 1,048,577 & 0.31--0.39 s \\
+    \bottomrule
+  \end{tabular}
+  \caption{Observed first \(hpre_i\) timing ranges in repeated 1 GiB forced-left dispute benchmarks.}
+  \label{tab:app-hpre-rounds}
+\end{table}
+
+The decreasing times in Table~\ref{tab:app-hpre-rounds} are CPU times, not gas. The
+benchmark forces the left branch of the binary search, so the challenge index is
+approximately divided by two at each round. The native computation recomputes a smaller
+prefix for later rounds.
+
+\section{Native versus browser/WASM interpretation}
+
+\begin{table}[H]
+  \centering
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.24\linewidth}>{\raggedright\arraybackslash}X}
+    \toprule
+    Path & Role in the project \\
+    \midrule
+    WebAssembly frontend path & Useful for integration, UI demonstrations, and small or
+    medium files. It is not the reliable path for 1 GiB measurements. \\
+    Native Rust CLI path & Used for large-file precontract generation and hardcoded
+    dispute witnesses. The 1 GiB results in this report are native CLI results. \\
+    Hardhat transaction time & Measures local execution of test transactions. It does not
+    include public-network latency, mempool behavior, or wallet interaction delays. \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Interpretation of the off-chain execution paths.}
+  \label{tab:app-native-vs-wasm}
+\end{table}
+
+In the direct WASM experiments, files around 640 MiB and 704 MiB could be processed after
+memory-related patches, while larger sizes such as 736 MiB remained unreliable in that path.
+For this reason, the report claims 1 GiB support only for the native CLI benchmark path.

@@ -1,0 +1,489 @@
+\chapter{Experimental Results}
+\label{chap:experimental-results}
+
+\section{Measurement methodology and scopes}
+
+This chapter reports the gas and runtime measurements obtained during the experimental
+phase of the project. The main difficulty was not only measuring gas, but measuring the
+same quantity across different architectures. The implementation went through three
+relevant stages:
+
+\begin{itemize}
+  \item the initial implementation, used as the baseline from the previous semester
+  project;
+  \item the intermediate monolithic implementation, where several variants were first added to
+  the existing contracts as flags;
+  \item the final specialized implementation, where the variants are split into dedicated
+  contracts and, for the optimistic variants, into reusable implementations deployed through
+  a factory.
+\end{itemize}
+
+All gas values in this chapter come from transaction receipts in the local Hardhat test
+environment. They should therefore be read as reproducible EVM gas measurements for the
+implemented contracts, not as predictions of end-user latency or fee paid on a public
+network. Off-chain timings were measured with the native Rust command-line tools used by
+the benchmarks. They are machine-dependent, but they are useful for comparing the relative
+cost of preparing precontracts and dispute witnesses.
+
+The measurements were obtained from the Phase 4 benchmark suite, in particular the tests
+comparing the initial implementation, the monolithic implementation, the specialized final
+architecture, and the native 1 GiB hardcoded dispute path. The benchmark outputs were then
+reorganized by scope before being reported here, so that totals can be recomposed from the
+individual lines when needed.
+
+The following scopes are used throughout the chapter.
+
+\begin{table}[htbp]
+  \centering
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.27\linewidth}>{\raggedright\arraybackslash}X}
+    \toprule
+    Scope & Meaning \\
+    \midrule
+    Fixed infrastructure &
+    Gas paid once to deploy reusable components such as \texttt{SOXFactory} and optimistic
+    implementation contracts. \\
+    Marginal optimistic cost &
+    Gas paid for one new exchange after the reusable infrastructure already exists. For
+    clone-based modes, this includes clone creation and the honest-path calls until
+    completion. \\
+    Optimistic path &
+    Gas needed to deploy or create the optimistic account and execute the honest exchange
+    until the terminal complete state. \\
+    Dispute after trigger &
+    Gas paid after the dispute account has been deployed, namely the challenge rounds,
+    Step 8 submission, and finalization. \\
+    Full dispute path &
+    Gas including the optimistic setup, dispute trigger/deployment, challenge rounds,
+    Step 8, and finalization. \\
+    Off-chain runtime &
+    Wall-clock time for native computation of precontract artifacts or dispute witnesses.
+    It is not on-chain gas. \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Measurement scopes used in the experimental evaluation.}
+  \label{tab:measurement-scopes}
+\end{table}
+
+This separation is essential. For example, a factory-based clone has a very low marginal
+cost per exchange, but only after the factory and implementations have already been
+deployed. Conversely, a direct hardcoded deployment can be more expensive in the optimistic
+phase while still being useful in dispute, because it reduces the dispute deployer and the
+generic circuit verification work.
+
+\section[Baseline measurements]{Baseline measurements of the initial implementation}
+
+The first baseline is the honest optimistic exchange in the initial implementation. In that
+architecture, every exchange deploys a full optimistic account contract. The complete
+optimistic path measured in the initial implementation costs \(2,300,201\) gas: \(2,077,362\)
+gas for deployment and \(222,839\) gas for execution.
+
+\begin{table}[htbp]
+  \centering
+  \begin{tabular}{lrrr}
+    \toprule
+    Optimistic path & Initial & Interm. mono. & Difference \\
+    \midrule
+    Deployment & 2,077,362 & 2,813,862 & +736,500 \\
+    Execution until complete & 222,839 & 232,920 & +10,081 \\
+    \midrule
+    Total & 2,300,201 & 3,046,782 & +746,581 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Honest optimistic path before and after the first monolithic variant changes.}
+  \label{tab:baseline-optimistic}
+\end{table}
+
+Table~\ref{tab:baseline-optimistic} shows the negative result that motivated the final
+architecture. The monolithic implementation was functionally useful, but it made the
+optimistic path \(32.46\%\) more expensive than the initial implementation. Most of the
+increase came from deployment, not from the honest-path calls. This confirmed that putting
+all variants into the same deployed bytecode was the wrong optimization strategy.
+
+The same effect appears in the dispute initialization measurements on a 4 MiB file. The
+monolithic implementation is again more expensive than the initial implementation when the
+same scope is measured.
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}Xrrr}
+    \toprule
+    Dispute-related measure, 4 MiB & Initial & Interm. mono. & Difference \\
+    \midrule
+    Dispute deployment / trigger & 4,651,201 & 5,779,296 & +1,128,095 \\
+    Exchange + dispute triggering & 4,977,003 & 6,058,222 & +1,081,219 \\
+    Optimistic deploy + dispute init total & 7,054,365 & 8,872,096 & +1,817,731 \\
+    One challenge round average & 82,624 & 103,282 & +20,658 \\
+    \texttt{submitCommitment}, SHA-256 gate & 320,000 & 379,686 & +59,686 \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Initial implementation versus intermediate monolithic implementation on the same 4 MiB dispute scope.}
+  \label{tab:baseline-dispute-4mib}
+\end{table}
+
+The baseline conclusion is therefore clear: the first implementation of variants did not
+optimize gas. It was an intermediate engineering step that made the variants executable and
+measurable, but its gas cost justified the move to specialized contracts.
+
+\section{One-time infrastructure deployment costs}
+
+The final optimistic architecture uses a reusable factory and reusable implementation
+contracts. These costs are paid once at protocol setup time. They are not paid again for
+each exchange.
+
+\begin{table}[htbp]
+  \centering
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}Xr}
+    \toprule
+    Component & Deployment gas \\
+    \midrule
+    \texttt{SOXFactory} & 561,126 \\
+    Normal optimistic clone implementation & 1,492,453 \\
+    \texttt{no\_S\_deposit} implementation & 1,482,093 \\
+    \(S=B\) implementation & 1,529,267 \\
+    \(S=V\) implementation & 1,519,062 \\
+    \midrule
+    Total optimistic clone infrastructure & 6,584,001 \\
+    \bottomrule
+  \end{tabularx}
+  \caption{One-time infrastructure cost of the clone-based optimistic architecture.}
+  \label{tab:factory-infrastructure-cost}
+\end{table}
+
+This table should not be added to every exchange. It is an amortized infrastructure cost.
+For a single isolated exchange, deploying this infrastructure would be expensive. For a
+system handling several exchanges, however, the marginal cost becomes the relevant measure.
+Compared with the initial optimistic total of \(2,300,201\) gas per exchange, the clone
+infrastructure is amortized after roughly four exchanges in the measured specialized
+optimistic modes.
+
+\section{Optimistic path gas costs}
+
+The final implementation provides two kinds of specialized optimistic measurements. The
+first kind uses direct specialized contracts. These already reduce the cost compared with
+the initial implementation, because each contract removes unrelated branches. The second
+kind uses minimal clones through \texttt{SOXFactory}. These are the lowest marginal-cost
+measurements, because the full implementation bytecode has already been deployed once.
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}Xrrr}
+    \toprule
+    Specialized optimistic mode & Direct total & Clone marginal total & Clone gain vs initial \\
+    \midrule
+    \texttt{no\_S\_deposit} & 1,724,251 & 500,720 & \(-78.23\%\) \\
+    \(S=B\) & 1,751,300 & 516,349 & \(-77.55\%\) \\
+    \(S=V\) & 1,787,289 & 556,309 & \(-75.81\%\) \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Optimistic-path gas costs for the final specialized modes.}
+  \label{tab:optimistic-specialized-costs}
+\end{table}
+
+The clone-based \texttt{no\_S\_deposit} mode is the cheapest measured honest exchange:
+\(500,720\) gas once the infrastructure exists. The \(S=B\) and \(S=V\) cases are slightly
+more expensive, but they remain below \(560,000\) gas. These values are the main positive
+result on the optimistic path. The project reduced the per-exchange optimistic cost from
+roughly \(2.3\) million gas in the initial implementation to roughly \(0.5\)--\(0.56\)
+million gas in the final specialized clone architecture.
+
+It is important not to compare these clone marginal values directly with a first deployment
+of the whole protocol. The fair comparison is either direct-specialized versus initial
+single-exchange deployment, or clone marginal versus initial per-exchange cost after the
+clone infrastructure has been paid once. Appendix~\ref{app:detailed-gas-tables} gives an
+explicit recomposition table for these final factory/clone costs.
+
+\section{Dispute path gas costs}
+
+For the dispute path, the main same-scope comparison uses a 4 MiB file and measures
+``optimistic deploy + dispute init total''. This scope combines the cost of creating the
+optimistic exchange with the cost of reaching the dispute initialization point. It is useful
+because it exposes both the deployment effect and the dispute trigger effect.
+
+\begin{table}[htbp]
+  \centering
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}Xr}
+    \toprule
+    Architecture, same 4 MiB scope & Gas \\
+    \midrule
+    Initial implementation & 7,054,365 \\
+    Intermediate monolithic implementation & 8,872,096 \\
+    Final specialized implementation & 5,495,184 \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Same-scope 4 MiB dispute initialization comparison.}
+  \label{tab:same-scope-dispute-4mib}
+\end{table}
+
+The final specialized implementation reduces this scope by \(38.06\%\) compared with the
+monolithic implementation and by \(22.10\%\) compared with the initial implementation. The
+main reason is architectural: the optimistic deployment component becomes a clone creation,
+while the generic Step 8 verifier remains close to the monolithic cost in the normal
+non-hardcoded case.
+
+A second same-scope comparison uses 16 KiB disputes and compares the intermediate monolithic
+diagnostic against the final specialized contracts for the four relevant dispute variants.
+This scope starts at the buyer-side dispute sponsor step and includes the trigger,
+challenge rounds, Step 8, and finalization.
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}Xrrr}
+    \toprule
+    Dispute case, 16 KiB & Interm. mono. & Final specialized & Gain \\
+    \midrule
+    Normal, external sponsors & 8,345,424 & 7,432,647 & \(-10.94\%\) \\
+    Self-sponsored \(S_B=B, S_V=V\) & 7,165,928 & 5,946,445 & \(-17.02\%\) \\
+    Hardcoded \(\mathsf{SHA256}\) & 8,310,230 & 5,195,022 & \(-37.49\%\) \\
+    Self-sponsored + hardcoded & 7,193,323 & 4,042,185 & \(-43.81\%\) \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Same-scope 16 KiB dispute comparison between intermediate monolithic and final specialized contracts.}
+  \label{tab:same-scope-dispute-16kib}
+\end{table}
+
+Table~\ref{tab:same-scope-dispute-16kib} is the clearest dispute-side summary of the final
+architecture. The normal case improves moderately because the verifier is still generic.
+The hardcoded cases improve much more because the dispute deployer and Step 8 verifier are
+specialized. The self-sponsored hardcoded case is the best measured 16 KiB dispute case in
+this scope, with a total of \(4,042,185\) gas.
+
+\section{Hardcoded SHA-256 gas impact}
+
+The hardcoded \(\mathsf{SHA256}\) mode has a specific purpose. It does not optimize the
+honest optimistic path directly. It optimizes the dispute path for the common description
+\(desc=\mathsf{SHA256}(x)\), by making the smart contract reconstruct the selected gate
+from public metadata instead of receiving the generic circuit gate and the Merkle proof
+\(\pi_1\) for \(h_{\mathit{circuit}}\).
+
+The local Step 8 measurement confirms that \(\pi_1\) is removed. For a 16 KiB circuit, the
+ordinary \texttt{submitCommitment} call costs \(463,532\) gas and carries 10 \(\pi_1\)
+items. The hardcoded call costs \(400,990\) gas and carries no \(\pi_1\) item, saving
+\(62,542\) gas on that local Step 8 call.
+
+\begin{table}[htbp]
+  \centering
+  \begin{tabular}{lrrrr}
+    \toprule
+    Size & Normal Step 8 & Hardcoded Step 8 & \(\pi_1\) items & Saving \\
+    \midrule
+    13 bytes & 251,444 & 234,626 & 3 to 0 & 16,818 \\
+    16 KiB & 463,532 & 400,990 & 10 to 0 & 62,542 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Local Step 8 effect of removing the generic \(h_{\mathit{circuit}}\) proof.}
+  \label{tab:hardcoded-step8-local}
+\end{table}
+
+For large circuits, isolating only the \(h_{\mathit{circuit}}/\pi_1\) membership check gives
+a larger local saving. At 1 GiB, the generic membership verification costs approximately
+\(198,585\) gas, while the hardcoded reconstruction costs between \(29,639\) and \(32,390\)
+gas depending on the selected gate. This is a local saving of about \(166,000\)--\(169,000\)
+gas. In a full dispute, this saving is diluted by the other costs: dispute deployment,
+challenge rounds, AES/SHA gate evaluation, \(h_{\mathit{ct}}\) proofs, \(hpre\) proofs, and
+finalization.
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}Xrrr}
+    \toprule
+    Equivalent circuit size & Generic \(h_{\mathit{circuit}}\) check & Hardcoded check & Local saving \\
+    \midrule
+    900 MiB & 192,267 & 29,639--32,390 & 159,877--162,628 \\
+    1 GiB & 198,585 & 29,639--32,390 & 166,195--168,946 \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Isolated large-circuit effect of replacing \(\pi_1\) by hardcoded reconstruction.}
+  \label{tab:hardcoded-large-local}
+\end{table}
+
+The largest full-path gain of the hardcoded work comes from the specialized hardcoded
+dispute deployer. In the intermediate monolithic hardcoded path, triggering a hardcoded
+dispute still paid for large generic deployment logic. In the final specialized hardcoded
+path, the trigger/deploy component decreases from \(5,767,448\) gas to \(2,699,433\) gas in
+the measured deployment-and-trigger scope. This explains why the final hardcoded dispute
+numbers improve far more than the isolated \(\pi_1\) saving alone. A full component-level
+mirror of the monolithic hardcoded path is given in Appendix~\ref{app:detailed-gas-tables}.
+
+\section{Self-sponsoring gas impact}
+
+Self-sponsoring affects the dispute path differently from hardcoded \(\mathsf{SHA256}\).
+It does not change the circuit verifier. Instead, it changes the number of times the
+challenge loop must be executed. In the normal external-sponsor case, Step 9 may require a
+new loop with another sponsor configuration. In the \(S_B=B, S_V=V\) case, this relaunch is
+unnecessary, because the disputing parties are already their own dispute sponsors.
+
+The 16 KiB monolithic diagnostic makes this effect visible if one removes the fixed trigger
+and setup components and looks at the variable dispute part after the trigger. The normal
+external-sponsor case costs \(2,450,528\) gas after the trigger. The self-sponsored case
+costs \(1,277,852\) gas after the trigger, a reduction of \(47.85\%\). The self-sponsored
+hardcoded case costs \(1,215,298\) gas after the trigger, a reduction of \(50.41\%\) against
+the normal variable part.
+
+This is consistent with the protocol expectation: the gas reduction is not a tiny local
+saving, but comes from removing a repeated Step 7--8 loop. In full totals, the percentage
+is smaller because fixed costs such as dispute deployment remain present. This distinction
+between full totals and variable loop cost was one of the main lessons of the measurement
+phase.
+
+\section{Large-file measurements up to 1 GiB}
+
+The implementation was also tested on a 1 GiB file using the native Rust path and the final
+hardcoded \(\mathsf{SHA256}\) dispute. This is the most important scalability measurement of
+the project: it demonstrates that the implementation can generate the required off-chain
+artifacts and execute the complete on-chain dispute path up to the terminal state.
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}Xrr}
+    \toprule
+    Final hardcoded strict path & 16 KiB & 1 GiB \\
+    \midrule
+    Optimistic before trigger & 2,938,363 & 2,938,363 \\
+    Trigger dispute / deploy dispute & 2,721,171 & 2,721,171 \\
+    Total optimistic + trigger & 5,659,534 & 5,659,534 \\
+    Challenge responses total & 608,190 & 1,581,282 \\
+    Opinions total & 421,615 & 1,095,903 \\
+    Step 8 \texttt{submitCommitmentLeft} & 5,449,017 & 5,577,706 \\
+    Finalization & 75,667 & 75,667 \\
+    Dispute after trigger & 6,554,489 & 8,330,558 \\
+    \midrule
+    Complete measured path & 12,214,023 & 13,990,092 \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Complete final hardcoded strict path for 16 KiB and 1 GiB.}
+  \label{tab:hardcoded-strict-end-to-end}
+\end{table}
+
+The 1 GiB file has \(16,777,216\) ciphertext blocks and \(33,554,437\) gates in the
+hardcoded layout. The binary search therefore uses 26 challenge rounds. In the measured
+self-sponsored hardcoded scenario, the complete path costs \(13,990,092\) gas, including
+the optimistic path, the dispute trigger, all challenge rounds, Step 8, and finalization.
+
+A separate 1 GiB hardcoded benchmark with external sponsors and three Step 7--8 iterations
+was also run. The dispute after trigger costs \(23,865,946\) gas. Including the trigger
+gives \(26,585,279\) gas, and including the full optimistic path before the dispute gives
+\(29,532,277\) gas. This is not a simple multiplication by three of the one-iteration cost,
+because later iterations rewrite some storage slots that have already been initialized.
+
+\section{Off-chain runtime measurements}
+
+The 1 GiB benchmark uses the native Rust CLI, not the browser/WASM path. This distinction is
+important. The WASM path remains useful for integration and small or medium files, but the
+native CLI is the reliable path for large-file measurements because it avoids the memory
+pressure of JavaScript and browser-adjacent execution.
+
+\begin{table}[htbp]
+  \centering
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}Xr>{\raggedright\arraybackslash}X}
+    \toprule
+    1 GiB runtime measure & Time & Interpretation \\
+    \midrule
+    Precontract CLI & 22.42--48.70 s & Mainly vendor-side preparation: read \(x\), encrypt,
+    compute commitments and metadata. \\
+    Native dispute generation & 16.43--35.46 s & Aggregate benchmark time to prepare dispute
+    data; not attributable to one protocol actor. \\
+    Total \(hpre_i\) generation & 9.47--11.92 s & Buyer-side generation of the published
+    challenge responses over 26 rounds. \\
+    Local Hardhat transaction execution & 0.30--0.56 s & Local wall-clock time to send the
+    benchmark transactions; not a cryptographic runtime. \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Off-chain runtime measurements for the 1 GiB hardcoded benchmark.}
+  \label{tab:offchain-runtime-1gib}
+\end{table}
+
+The ranges in Table~\ref{tab:offchain-runtime-1gib} reflect repeated runs on the same
+machine. The gas values are stable transaction-receipt measurements, but wall-clock times
+depend on cache state and local I/O. The first \(hpre_i\) computations are slower than the later ones because the benchmark
+forces the binary search to the left. The challenge index is approximately divided by two
+at each round, so the native code recomputes a smaller prefix/accumulator for later rounds.
+This affects CPU time only. It is not a gas effect.
+
+\begin{table}[htbp]
+  \centering
+  \begin{tabular}{rrr}
+    \toprule
+    Round & Challenge index \(i\) & \(hpre_i\) time \\
+    \midrule
+    0 & 16,777,219 & 4.58--6.04 s \\
+    1 & 8,388,610 & 2.23--2.46 s \\
+    2 & 4,194,305 & 1.17--1.33 s \\
+    3 & 2,097,153 & 0.60--0.71 s \\
+    4 & 1,048,577 & 0.31--0.39 s \\
+    \bottomrule
+  \end{tabular}
+  \caption{First \(hpre_i\) generation times in the 1 GiB forced-left benchmark.}
+  \label{tab:hpre-first-rounds}
+\end{table}
+
+The on-chain gas of the challenge rounds does not follow this division by two. For the
+1 GiB benchmark, \texttt{respondChallenge} costs \(1,581,282\) gas over 26 rounds, or about
+\(60,819\) gas per round. \texttt{giveOpinion} costs \(1,095,903\) gas over 26 rounds, or
+about \(42,150\) gas per round.
+
+\section{Comparison summary}
+
+The final comparison is summarized in Table~\ref{tab:experimental-summary}. The most
+important result is that the final architecture does not merely recover from the
+monolithic overhead; it improves over the initial implementation on the main same-scope
+measurements that were targeted by the project.
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.34\linewidth}>{\raggedright\arraybackslash}X}
+    \toprule
+    Result & Interpretation \\
+    \midrule
+    Optimistic clone modes: 500,720--556,309 gas &
+    Per-exchange optimistic marginal cost is reduced by about \(75.8\%\)--\(78.2\%\)
+    compared with the initial \(2,300,201\) gas optimistic path. \\
+    4 MiB specialized dispute-init scope: 5,495,184 gas &
+    The final specialized architecture is \(38.06\%\) cheaper than the intermediate monolithic
+    version and \(22.10\%\) cheaper than the initial implementation on the same scope. \\
+    16 KiB specialized dispute cases &
+    All four measured variants improve over the intermediate monolithic equivalents; the best
+    case is self-sponsored + hardcoded at \(4,042,185\) gas. \\
+    Self-sponsoring &
+    The variable dispute loop cost drops by roughly half when Step 9 no longer relaunches
+    unnecessary Step 7--8 iterations. \\
+    Hardcoded \(\mathsf{SHA256}\) &
+    The contract reconstructs \(g_i\), removes \(\pi_1\), and reduces both local Step 8 gas
+    and the specialized hardcoded dispute deployment path. \\
+    1 GiB hardcoded benchmark &
+    A complete hardcoded dispute was executed up to \texttt{End}, with 26 challenge rounds
+    and a full measured cost of \(13,990,092\) gas in the self-sponsored hardcoded scenario. \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Summary of the main experimental results.}
+  \label{tab:experimental-summary}
+\end{table}
+
+\section{Interpretation of results}
+
+The experimental results support three conclusions.
+
+First, specialization is necessary. The monolithic implementation made the variants
+available, but it increased deployment gas and made several tables hard to interpret. The
+final split architecture is measurably better because mutually exclusive logic is no longer
+deployed together.
+
+Second, the optimistic path is where the factory and clone architecture is most effective.
+The reduction from about \(2.3\) million gas to about \(0.5\) million gas per exchange is
+the largest clean improvement of the project. It directly addresses the cost of the honest
+case, which is the path expected to be used most often.
+
+Third, dispute optimization has two different components. Self-sponsoring reduces the
+number of dispute iterations, while hardcoded \(\mathsf{SHA256}\) reduces the generic
+circuit-verification burden and the hardcoded dispute deployment path. These optimizations
+are complementary: the strongest 16 KiB dispute result is obtained when both are enabled.
+
+The remaining dominant costs are \texttt{triggerDispute}, deployment of dispute accounts,
+and the Step 8 evaluation of expensive gates, especially AES-related checks and the
+associated commitment proofs. These are the natural next targets for a future version of
+the implementation.

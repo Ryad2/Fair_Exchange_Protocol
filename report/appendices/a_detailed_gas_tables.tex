@@ -1,0 +1,205 @@
+\chapter{Detailed Gas Tables}
+\label{app:detailed-gas-tables}
+
+This appendix collects the main gas tables used in Chapter~\ref{chap:experimental-results}.
+The goal is not to introduce new measurements, but to make the accounting recomposable in
+one place. All values are gas units measured from Hardhat transaction receipts unless
+explicitly stated otherwise.
+
+\section{Initial and monolithic optimistic paths}
+
+\begin{table}[htbp]
+  \centering
+  \begin{tabular}{lrrr}
+    \toprule
+    Component & Initial & Interm. mono. & Difference \\
+    \midrule
+    Optimistic deployment & 2,077,362 & 2,813,862 & +736,500 \\
+    Optimistic execution & 222,839 & 232,920 & +10,081 \\
+    \midrule
+    Total & 2,300,201 & 3,046,782 & +746,581 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Same-scope optimistic-path comparison.}
+  \label{tab:app-optimistic-baseline}
+\end{table}
+
+\section{Factory and Clone Costs}
+
+\begin{table}[htbp]
+  \centering
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}Xr}
+    \toprule
+    One-time component & Gas \\
+    \midrule
+    \texttt{SOXFactory} & 561,126 \\
+    Normal clone implementation & 1,492,453 \\
+    \texttt{no\_S\_deposit} implementation & 1,482,093 \\
+    \(S=B\) implementation & 1,529,267 \\
+    \(S=V\) implementation & 1,519,062 \\
+    \midrule
+    Total one-time infrastructure & 6,584,001 \\
+    \bottomrule
+  \end{tabularx}
+  \caption{One-time clone infrastructure cost.}
+  \label{tab:app-clone-infrastructure}
+\end{table}
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}Xrrrrr}
+    \toprule
+    Mode & Create & Payment & Key & Complete & Total \\
+    \midrule
+    \texttt{no\_S\_deposit} & 299,694 & 82,272 & 61,363 & 57,391 & 500,720 \\
+    \(S=B\) & 393,412 & 0 & 61,363 & 61,574 & 516,349 \\
+    \(S=V\) & 328,926 & 104,446 & 61,363 & 61,574 & 556,309 \\
+    \bottomrule
+\end{tabularx}
+  \caption{Marginal optimistic costs once the clone infrastructure is deployed.}
+  \label{tab:app-clone-marginal}
+\end{table}
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}Xr}
+    \toprule
+    Specialized/factory quantity & Recomposition & Gas \\
+    \midrule
+    One-time optimistic infrastructure &
+    \(561,126 + 1,492,453 + 1,482,093 + 1,529,267 + 1,519,062\) &
+    6,584,001 \\
+    \texttt{no\_S\_deposit} marginal optimistic exchange &
+    \(299,694 + 82,272 + 61,363 + 57,391\) &
+    500,720 \\
+    \(S=B\) marginal optimistic exchange &
+    \(393,412 + 0 + 61,363 + 61,574\) &
+    516,349 \\
+    \(S=V\) marginal optimistic exchange &
+    \(328,926 + 104,446 + 61,363 + 61,574\) &
+    556,309 \\
+    4 MiB final specialized dispute-init scope &
+    \(348,946 + 5,146,238\) &
+    5,495,184 \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Explicit recomposition of the final factory/clone specialized costs.}
+  \label{tab:app-factory-recomposition}
+\end{table}
+
+Table~\ref{tab:app-factory-recomposition} is the accounting view of the final
+factory-based specialized implementation. The first line is a one-time protocol setup
+cost. The following optimistic lines are marginal per-exchange costs after this setup.
+The last line gives the same-scope 4 MiB final specialized dispute-init total used for
+comparison with the initial and monolithic implementations.
+
+\section{Same-scope dispute comparisons}
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}Xrrr}
+    \toprule
+    Measure, 4 MiB & Initial & Interm. mono. & Final specialized \\
+    \midrule
+    Optimistic deployment / creation & 2,077,362 & 2,813,862 & 348,946 \\
+    Dispute deployment / trigger & 4,651,201 & 5,779,296 & 4,862,324 \\
+    Exchange + dispute triggering & 4,977,003 & 6,058,222 & 5,146,238 \\
+    Optimistic deploy + dispute init total & 7,054,365 & 8,872,096 & 5,495,184 \\
+    One challenge round average & 82,624 & 103,282 & 103,128 \\
+    Step 8 SHA-256 gate & 320,000 & 379,686 & 382,181 \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Same-scope 4 MiB comparison across the three implementation stages.}
+  \label{tab:app-4mib-comparison}
+\end{table}
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}Xrrrrrr}
+    \toprule
+    16 KiB final specialized case & SB & Trigger & Respond & Opinion & Step 8 & Total \\
+    \midrule
+    Normal, external sponsors & 118,094 & 4,862,324 & 729,630 & 763,872 & 880,050 & 7,432,647 \\
+    Self-sponsored & 109,415 & 4,593,958 & 364,815 & 381,986 & 420,072 & 5,946,445 \\
+    Hardcoded SHA-256 & 115,588 & 2,719,333 & 729,630 & 763,872 & 790,225 & 5,195,022 \\
+    Self-sponsored + hardcoded & 106,954 & 2,721,171 & 364,815 & 381,936 & 393,435 & 4,042,185 \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Detailed 16 KiB final specialized dispute accounting. Finalization is included in the total.}
+  \label{tab:app-16kib-specialized}
+\end{table}
+
+\section{Hardcoded strict end-to-end path}
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}Xrr}
+    \toprule
+    Final hardcoded strict component & 16 KiB & 1 GiB \\
+    \midrule
+    Optimistic deployment & 2,668,072 & 2,668,072 \\
+    Buyer payment & 104,441 & 104,441 \\
+    Vendor key & 58,896 & 58,896 \\
+    \(S_B=B\) dispute deposit & 106,954 & 106,954 \\
+    Total optimistic before trigger & 2,938,363 & 2,938,363 \\
+    Trigger / dispute deployment & 2,721,171 & 2,721,171 \\
+    Challenge responses total & 608,190 & 1,581,282 \\
+    Opinions total & 421,615 & 1,095,903 \\
+    Step 8 left submission & 5,449,017 & 5,577,706 \\
+    Finalization & 75,667 & 75,667 \\
+    \midrule
+    Total complete path & 12,214,023 & 13,990,092 \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Complete hardcoded strict path with \(S_B=B\) and \(S_V=V\).}
+  \label{tab:app-hardcoded-strict}
+\end{table}
+
+\section{Monolithic hardcoded mirror}
+
+Table~\ref{tab:app-monolithic-hardcoded-mirror} gives the matching hardcoded breakdown for
+the intermediate monolithic path. This is not the final architecture. It corresponds to
+\texttt{OptimisticSOXAccount} with a separate hardcoded-configuration call and the
+monolithic dispute account. In this
+path, \(\pi_1\) is absent, but the selected gate is still supplied as 64 bytes of
+\texttt{gateBytes}; the final specialized path removes both \(\pi_1\) and the supplied gate
+description.
+
+\begin{table}[H]
+  \centering
+  \small
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}Xrr}
+    \toprule
+    Monolithic hardcoded component & 16 KiB & 1 GiB \\
+    \midrule
+    Optimistic deployment & 2,813,682 & 2,813,682 \\
+    Hardcoded configuration & 81,897 & 81,897 \\
+    Buyer payment & 104,441 & 104,441 \\
+    Vendor key & 58,896 & 58,896 \\
+    \(S_B=B\) dispute deposit & 106,954 & 106,954 \\
+    Total optimistic before trigger & 3,165,870 & 3,165,870 \\
+    Trigger / dispute deployment & 5,789,186 & 5,789,186 \\
+    Total optimistic + trigger & 8,955,056 & 8,955,056 \\
+    Challenge responses total & 608,850 & 1,582,998 \\
+    Opinions total & 422,495 & 1,098,191 \\
+    Step 8 left submission with \texttt{gateBytes} & 5,461,150 & 5,576,406 \\
+    Finalization & 75,667 & 75,667 \\
+    Dispute after trigger & 6,568,162 & 8,333,262 \\
+    \midrule
+    Total complete path & 15,523,218 & 17,288,318 \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Complete monolithic hardcoded mirror with \(S_B=B\) and \(S_V=V\).}
+  \label{tab:app-monolithic-hardcoded-mirror}
+\end{table}
+
+For the 1 GiB hardcoded path with external sponsors and three Step 7--8 iterations, the
+measured dispute after trigger is 23,865,946 gas. Including the trigger gives 26,585,279
+gas, and including the optimistic path gives 29,532,277 gas. This value is not obtained by
+multiplying the one-iteration path by three, because later iterations update storage slots
+that have already been initialized.

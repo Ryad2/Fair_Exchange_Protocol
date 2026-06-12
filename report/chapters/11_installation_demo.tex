@@ -1,0 +1,317 @@
+\chapter[Installation and Demonstration]{Installation, Execution, and Demonstration Guide}
+\label{chap:installation-demo}
+
+\section{System requirements}
+
+The implementation was developed and tested in a Linux/WSL-style environment. The exact
+gas measurements reported in Chapter~\ref{chap:experimental-results} were obtained on a
+local Hardhat network. Reproducing the project therefore requires both the web stack and
+the native cryptographic tooling.
+
+The required tools are:
+
+\begin{itemize}
+  \item Node.js, version 22 or later;
+  \item npm, used by the Next.js frontend and the Hardhat project;
+  \item Rust and Cargo, used to build the native precontract and dispute CLIs;
+  \item \texttt{wasm-pack}, needed only when rebuilding the frontend WebAssembly bundle;
+  \item \texttt{sqlite3}, used to initialize the local database;
+  \item \texttt{pnpm} and Foundry tooling, used by the Alto ERC-4337 bundler setup;
+  \item a Unix-compatible shell environment, preferably Linux or WSL.
+\end{itemize}
+
+The project contains an installation script that checks most of these dependencies and
+installs the JavaScript packages. The script is useful, but the manual commands below are
+also given so that the deployment can be reproduced and debugged step by step.
+
+\section{Repository setup}
+
+The repository should be cloned with its submodule, because the Alto bundler is stored in
+\path{bundler-alto} as a Git submodule.
+
+\begin{verbatim}
+git clone --recurse-submodules <repository-url>
+cd sox_implementation-D0AB
+git submodule update --init --recursive
+\end{verbatim}
+
+From the repository root, the standard installation command is:
+
+\begin{verbatim}
+chmod +x install.sh
+./install.sh
+\end{verbatim}
+
+The script installs the root Next.js dependencies, the Electron dependencies, the Hardhat
+dependencies, initializes the SQLite database if needed, and sets up the Alto bundler. It
+also builds the native \texttt{precontract\_cli} if Cargo is available. If the script is
+not used, the minimum manual installation is:
+
+\begin{verbatim}
+npm install
+cd src/hardhat && npm install && cd ../..
+cd desktop && npm install && cd ..
+\end{verbatim}
+
+The local database is stored in \path{src/app/db/sox.sqlite}. To create a fresh database,
+remove the old file and replay the schema:
+
+\begin{verbatim}
+rm -f src/app/db/sox.sqlite
+sqlite3 src/app/db/sox.sqlite < src/app/db/init.sql
+\end{verbatim}
+
+This resets the local application state. It does not reset the blockchain node; restarting
+Hardhat is the clean way to reset the chain.
+
+\section{Building the Rust and WebAssembly components}
+
+The project uses Rust in two different ways. The frontend imports a WebAssembly bundle from
+\path{src/app/lib/crypto_lib}. The large-file benchmarks use native Rust binaries from
+\path{src/wasm/target/release}. These are separate build targets and should not be
+confused.
+
+To rebuild all native CLI binaries used by the benchmarks, run:
+
+\begin{verbatim}
+cd src/wasm
+cargo build --release --bins
+cd ../..
+\end{verbatim}
+
+The most important binaries are:
+
+\begin{itemize}
+  \item \texttt{precontract\_cli}, which generates precontract artifacts;
+  \item \texttt{check\_precontract\_cli}, which verifies received precontract data;
+  \item \texttt{compute\_proofs\_cli}, which supports the current proof-generation API;
+  \item \texttt{hardcoded\_sha256\_dispute\_cli}, which generates hardcoded dispute data
+  for the large-file benchmark.
+\end{itemize}
+
+To rebuild the WebAssembly bundle used by the web application, install \texttt{wasm-pack}
+if necessary and run:
+
+\begin{verbatim}
+cd src/wasm
+./deploy.sh
+cd ../..
+\end{verbatim}
+
+This writes the generated JavaScript and WASM files to
+\path{src/app/lib/crypto_lib}. The Hardhat performance tests that import the WASM bundle
+expect these files to exist.
+
+\section{Deploying the local smart contract stack}
+
+The local blockchain node must be running before contracts are deployed. In a first
+terminal, start Hardhat:
+
+\begin{verbatim}
+cd src/hardhat
+npx hardhat node
+\end{verbatim}
+
+In a second terminal, from the repository root, deploy the complete local contract stack:
+
+\begin{verbatim}
+./deploy-all.sh
+\end{verbatim}
+
+The deployment script performs three main tasks. It deploys the local EntryPoint, deploys
+the simulation contracts needed by Alto, and deploys the SOX libraries, dispute deployers,
+clone implementations, and factory. The generated addresses are written to
+\path{deployed-contracts.json} and \path{src/deployed-contracts.json}. These files are used
+by the web application and the deployment helper.
+
+If the Hardhat node is restarted, the deployed addresses are no longer valid. In that case,
+run \texttt{./deploy-all.sh} again before using the application or the bundler.
+
+\section{Running Hardhat, Alto, and the frontend}
+
+The recommended development setup uses separate terminals. Keeping the processes separated
+makes errors easier to identify.
+
+\begin{table}[htbp]
+  \centering
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.18\linewidth}>{\raggedright\arraybackslash}X}
+    \toprule
+    Terminal & Command \\
+    \midrule
+    1 & \texttt{cd src/hardhat \&\& npx hardhat node} \\
+    2 & \texttt{./deploy-all.sh} after Terminal 1 is ready \\
+    3 & \texttt{./run-alto.sh} after deployment succeeds \\
+    4 & \texttt{npm run dev} from the repository root \\
+    5, optional & \texttt{cd desktop \&\& npm start} after Next.js is running \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Recommended local process layout.}
+  \label{tab:local-process-layout}
+\end{table}
+
+The web application is then available at \url{http://localhost:3000}. The local Hardhat RPC
+is available at \url{http://localhost:8545}. The Alto bundler RPC is available at
+\url{http://localhost:4337/rpc}.
+
+The helper script \path{START_ALL.sh} can be used to coordinate the services, but the
+manual terminal layout in Table~\ref{tab:local-process-layout} is the most reproducible
+method for debugging and for demonstrations.
+
+\section{Running the optimistic demo}
+
+The simplest end-to-end demonstration is an honest optimistic exchange with the normal
+sponsored path. A 4 MiB test file can be created with:
+
+\begin{verbatim}
+mkdir -p demo_files
+truncate -s 4M demo_files/demo_4MiB.bin
+\end{verbatim}
+
+With Hardhat, the deployed contracts, Alto, and Next.js running, open the web interface at
+\url{http://localhost:3000}. The demo flow is:
+
+\begin{enumerate}
+  \item Select the vendor role and create a new precontract.
+  \item Choose the buyer address, upload \path{demo_files/demo_4MiB.bin}, and keep the
+  normal sponsored mode for the standard demo.
+  \item Submit the precontract. The backend calls the native precontract generator and
+  stores the ciphertext and metadata.
+  \item Switch to the buyer role and open the non-accepted precontract.
+  \item Click ``Verify commitment'' to call \path{/api/precontracts/verify}. This checks
+  the received ciphertext and commitment data with the native precontract checker.
+  \item Accept the precontract. The application marks it as accepted and downloads the
+  ciphertext for the buyer.
+  \item Switch to the sponsor role and sponsor/deploy the optimistic contract.
+  \item Switch to the buyer role and send the buyer payment.
+  \item Switch to the vendor role and send the key.
+  \item The optimistic contract reaches the complete state if the exchange is honest.
+\end{enumerate}
+
+For demonstrations focused on the new optimistic variants, the vendor can select
+\simsox{} (\texttt{no\_S\_deposit}), \(S=B\), or \(S=V\) in the precontract creation modal.
+The user interface enforces the obvious role constraints, and the corresponding on-chain
+path repeats the relevant checks.
+
+\section{Running gas benchmarks}
+
+The Hardhat test suite contains both correctness tests and performance tests. The following
+commands are the main tests used for the measurements in this report:
+
+\begin{verbatim}
+cd src/hardhat
+npx hardhat test test/Phase3Variants.test.ts
+npx hardhat test test/Phase3ExhaustiveAndGas.test.ts
+npx hardhat test \
+  test/performance/HanaComparisonCurrent.test.ts
+npx hardhat test \
+  test/performance/SpecializedContractArchitecture.test.ts
+npx hardhat test \
+  test/performance/SpecializedFinalSameScope.test.ts
+\end{verbatim}
+
+The first two commands test the implemented variants and the monolithic variant matrix. The
+\texttt{HanaComparisonCurrent} benchmark remeasures the same scopes as the initial
+implementation. The specialized architecture benchmarks measure the factory, clone,
+self-sponsored, and hardcoded paths used in Chapter~\ref{chap:experimental-results}.
+
+Gas reporter output can also be enabled through the environment variable already supported
+by the Hardhat configuration:
+
+\begin{verbatim}
+REPORT_GAS=true npx hardhat test
+\end{verbatim}
+
+For stable comparisons, the repository should be measured on a fresh Hardhat state and with
+the same Solidity optimizer settings as the submitted implementation. The Hardhat
+configuration uses Solidity 0.8.28, optimizer enabled, \texttt{viaIR}, and optimizer
+\texttt{runs = 1}, because the project also targets bytecode-size reduction.
+
+\section{Running large-file benchmarks}
+
+The 1 GiB hardcoded benchmark requires the native Rust binaries. Build them first:
+
+\begin{verbatim}
+cd src/wasm
+cargo build --release --bin precontract_cli \
+  --bin hardcoded_sha256_dispute_cli
+cd ../hardhat
+\end{verbatim}
+
+Then run the benchmark:
+
+\begin{verbatim}
+npx hardhat test \
+  test/performance/NativeHardcodedSHA256FullDispute1GB.test.ts
+\end{verbatim}
+
+By default, this test uses a 1 GiB file. It creates the file in a temporary directory using
+file truncation, runs \texttt{precontract\_cli}, runs the hardcoded dispute CLI, executes
+all challenge rounds, performs Step 8, and finalizes the dispute. The temporary directory
+is removed at the end of the test.
+
+For a smoke test with the same code path but a smaller file, set the benchmark
+size environment variable. For example:
+
+\begin{verbatim}
+SOX_FULL_DISPUTE_SIZE_BYTES=16384 npx hardhat test \
+  test/performance/NativeHardcodedSHA256FullDispute1GB.test.ts
+\end{verbatim}
+
+The 1 GiB run requires enough disk space for the temporary plaintext, ciphertext, and
+intermediate artifacts, and it takes significantly longer than the small-file tests. It is
+therefore useful to run the small smoke test first when checking a new machine.
+
+\section{Troubleshooting}
+
+Most setup problems come from stale local state. A clean reset usually means restarting the
+Hardhat node, redeploying the contracts, restarting Alto, and restarting Next.js.
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.32\linewidth}>{\raggedright\arraybackslash}X}
+    \toprule
+    Symptom & Fix \\
+    \midrule
+    \texttt{spawn precontract\_cli ENOENT} &
+    Build the native binary from \path{src/wasm} with
+    \texttt{cargo build --release --bin precontract\_cli}. \\
+    Missing \path{deployed-contracts.json} or missing library addresses &
+    Start Hardhat and rerun \texttt{./deploy-all.sh}. \\
+    Alto says the EntryPoint does not exist &
+    The Hardhat chain was probably restarted. Redeploy with \texttt{./deploy-all.sh} and then restart Alto. \\
+    Frontend reports \texttt{Failed to fetch} for UserOperations &
+    Check that \texttt{./run-alto.sh} is running and that the bundler RPC is reachable at
+    \url{http://localhost:4337/rpc}. \\
+    \texttt{EACCES} in \path{src/hardhat/artifacts} &
+    Some files were created by another user. Restore ownership of
+    \path{src/hardhat/artifacts} and \path{src/hardhat/cache}. \\
+    Native 1 GiB benchmark skips itself &
+    Build both required native binaries: \texttt{precontract\_cli} and
+    \texttt{hardcoded\_sha256\_dispute\_cli}. \\
+    Browser/WASM struggles on very large files &
+    Use the native CLI benchmark path. The 1 GiB result in this report is a native CLI result, not a browser result. \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Common setup and execution issues.}
+  \label{tab:troubleshooting}
+\end{table}
+
+One additional Alto-specific issue can occur on a fresh local chain: the deterministic
+deployment sender used by the bundler may have no balance. On Hardhat, the account can be
+funded explicitly through JSON-RPC if needed:
+
+\begin{verbatim}
+cat >/tmp/alto-fund.json <<'JSON'
+{"jsonrpc":"2.0","id":1,"method":"hardhat_setBalance",
+"params":["0x3fAB184622Dc19b6109349B94811493BF2a45362",
+"0x8AC7230489E80000"]}
+JSON
+
+curl -X POST http://127.0.0.1:8545 \
+  -H "Content-Type: application/json" \
+  --data @/tmp/alto-fund.json
+\end{verbatim}
+
+After this, restart \path{run-alto.sh}. This command is only a local development fix; it is
+not part of the SOX protocol.

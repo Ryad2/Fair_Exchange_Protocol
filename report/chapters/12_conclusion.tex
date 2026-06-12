@@ -1,0 +1,140 @@
+\chapter{Conclusion}
+\label{chap:conclusion}
+
+\section{Summary of the project}
+
+This semester project started from an existing implementation of the Sponsored Fair
+Exchange protocol and turned it into a more structured, measurable, and gas-aware research
+prototype. The goal was not to redesign the cryptographic protocol from first principles.
+The goal was to understand the inherited implementation, identify which protocol variants
+matter for gas consumption, implement the most relevant ones, and measure them under
+clearly defined scopes.
+
+The first part of the work was therefore investigative. The existing system combined Rust
+and WebAssembly precontract generation, Solidity optimistic and dispute contracts, a
+Next.js/Electron interface, a SQLite backend, and an ERC-4337-style bundler path. Before
+changing the protocol logic, it was necessary to reconstruct how these components actually
+interacted. This included rebuilding the local stack, mapping UI and contract actions to
+the steps of the protocol, and identifying where deployment, sponsorship, dispute
+triggering, and proof generation really occurred in the code.
+
+The second part of the work focused on variants. The project implemented and tested the
+main optimistic simplifications: no \(S\)-deposit, \(S=B\), and \(S=V\). It also implemented
+the relevant self-sponsored dispute behavior for \(S_B=B\) and \(S_V=V\), and a dedicated
+hardcoded \(\mathsf{SHA256}\) dispute mode for \(desc=\mathsf{SHA256}(x)\). These variants
+were first made functional in a monolithic implementation, then reorganized into a final
+specialized architecture with smaller contracts and clone-based optimistic deployments.
+
+The third part of the work was experimental. The project produced same-scope gas
+measurements for the initial implementation, the monolithic intermediate implementation,
+and the final specialized implementation. It also measured off-chain runtime for large-file
+precontract and dispute witness generation. The most important large-file result is that a
+complete hardcoded \(\mathsf{SHA256}\) dispute was executed for a 1 GiB input using the
+native Rust pipeline.
+
+\section{Summary of results}
+
+The main positive result is on the optimistic path. In the initial implementation, an
+honest optimistic exchange cost \(2,300,201\) gas, including deployment and execution. In
+the final clone-based specialized architecture, the marginal optimistic cost per exchange
+falls to \(500,720\) gas for \texttt{no\_S\_deposit}, \(516,349\) gas for \(S=B\), and
+\(556,309\) gas for \(S=V\), once the reusable infrastructure has been deployed. This is the
+clearest gas reduction obtained in the project.
+
+The second result is methodological but important: the intermediate monolithic implementation
+was not an optimization. It was a functional intermediate step. It made the variants
+executable, but it increased gas because the deployed bytecode contained many mutually
+exclusive branches. This negative result directly motivated the final split architecture.
+It also made clear that gas comparisons must distinguish one-time infrastructure costs,
+marginal per-exchange costs, dispute deployment, post-trigger dispute execution, and local
+Step 8 costs.
+
+The third result is the dispute-side specialization. On the same 4 MiB dispute
+initialization scope, the final specialized implementation costs \(5,495,184\) gas, compared
+with \(7,054,365\) gas for the initial implementation and \(8,872,096\) gas for the
+monolithic intermediate implementation. On the 16 KiB same-scope dispute comparison, all
+four final specialized variants improve over their monolithic counterparts, with the
+self-sponsored hardcoded case reaching \(4,042,185\) gas in the measured scope.
+
+The fourth result is the hardcoded \(\mathsf{SHA256}\) mode. In this mode, the selected
+circuit is fixed by the precontract metadata. The dispute contract reconstructs the
+relevant gate in Step 8 and no longer requires the generic circuit membership proof
+\(\pi_1\). Locally, this saves \(62,542\) gas on the measured 16 KiB Step 8 call and about
+\(166,000\)--\(169,000\) gas on the isolated 1 GiB \(h_{\mathit{circuit}}\) check. In the
+full specialized implementation, the hardcoded path also reduces the dispute deployment
+component because it uses a dedicated deployer and dispute account.
+
+The fifth result is practical scalability. The native Rust pipeline can handle the 1 GiB
+hardcoded benchmark. The measured self-sponsored hardcoded path executes the optimistic
+setup, the dispute trigger, 26 challenge rounds, Step 8, and finalization for a total of
+\(13,990,092\) gas. This is a concrete end-to-end result for the implemented benchmark
+path. It should be interpreted correctly: it is a native CLI benchmark, not a
+browser-only workflow.
+
+\section{Final assessment}
+
+The project achieved its main implementation and measurement objectives. The inherited
+system was made executable and analyzed. The main sponsoring variants were specified,
+implemented, and tested. The monolithic approach was identified as gas-inefficient and
+replaced by a specialized architecture. The optimistic path was substantially reduced in
+marginal gas cost. The hardcoded \(\mathsf{SHA256}\) dispute mode was implemented with the
+contract reconstructing the gate instead of relying on a vendor-provided generic gate and
+\(\pi_1\). Finally, the project demonstrated a 1 GiB dispute path using native tooling.
+
+At the same time, the result remains a research prototype. The implementation still uses a
+local development UI, local accounts, a local backend, and Hardhat measurements. The
+optimized clone paths do not provide a full production wallet and ERC-4337 experience. The
+precontract verification route exists, but acceptance is not yet enforced by a backend
+verification precondition. The proof-generation API is also partial. These limitations are
+now documented explicitly rather than hidden behind the gas results.
+
+The project also identified inherited cryptographic-format issues. The generic V2 circuit
+encoding is functional for the generated circuits used in the tests, but it is not the
+cleanest final specification because some gate arities are inferred rather than encoded
+explicitly. The Merkle-style accumulators also lack domain separation between leaves and
+internal nodes. These issues were not introduced by the new variants, but they should be
+fixed in a future protocol version before any production deployment or paper-ready
+specification.
+
+Overall, the final implementation is stronger than the starting point in three ways. It is
+more gas-efficient on the main same-scope measurements, it is more explicit about which
+protocol variants are being executed, and it is more honest about its remaining security
+and engineering boundaries. This combination is important: a useful research prototype
+should not only produce lower numbers, but also make clear what those numbers mean.
+
+\section{Perspectives}
+
+The natural next step is not to add more flags to the existing contracts. The project
+showed that this path leads back to monolithic bytecode and confusing measurements. Future
+work should instead continue the specialization and deployment-architecture direction.
+
+A first direction is a cleaner factory-first or registry-first design. Such an architecture
+could represent exchanges by identifiers or deterministic minimal proxies, reuse deployed
+logic more systematically, and make Step 1+2 fusion possible even when \(S \neq B\). This
+would require a careful redesign of signatures, state layout, and ERC-4337 validation, but
+it is the most coherent path for reducing repeated deployment costs further.
+
+A second direction is a new commitment format. A V3 circuit encoding should remove
+ambiguity by encoding arity explicitly or by using distinct opcodes for cases such as
+one-input versus two-input SHA-256 gates and zero-input versus one-input CONST gates. The
+Merkle accumulators should also be domain-separated, for example by using different hash
+prefixes for leaves and internal nodes. This would make the implementation cleaner from a
+cryptographic engineering perspective.
+
+A third direction is completing the verification workflow. In a production-quality system,
+the buyer should not be able to accept a precontract unless the relevant verification has
+succeeded and the verified values are bound to the exchange. Similarly, the dispute UI
+should make actor-side verification explicit before each signed action. This would turn the
+existing verification tools into enforced protocol workflow steps.
+
+A fourth direction is optimizing the remaining dispute bottlenecks. After the optimistic
+path improvements, the dominant costs are dispute deployment, \texttt{triggerDispute}, and
+Step 8 evaluation, especially for AES-related gates and the associated
+\(h_{\mathit{ct}}\)/\(hpre\) proofs. Further work should target these components directly.
+
+Finally, the 1 GiB benchmark suggests a practical architecture for large-file fair exchange:
+the frontend should orchestrate the user workflow, while native backend workers generate
+large cryptographic artifacts. Turning this into a robust user-facing system would require
+streaming, progress reporting, artifact availability, wallet integration, and production
+deployment assumptions. The present project provides the measurements and implementation
+foundation needed to make that next step precise.

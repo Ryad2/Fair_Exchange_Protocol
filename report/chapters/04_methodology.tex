@@ -1,0 +1,275 @@
+\chapter[Methodology and Experiments]{Methodology and Experimental Discipline}
+\label{chap:methodology}
+
+\section{Project methodology}
+
+The project methodology was deliberately incremental. The implementation was already large
+when the project started, and changing protocol logic before understanding the real execution
+path would have made the gas measurements unreliable. The work was therefore organized
+around four principles:
+
+\begin{enumerate}
+  \item first reproduce the inherited implementation end-to-end;
+  \item then map implementation actions to protocol steps;
+  \item only then implement variants and optimizations;
+  \item finally measure each variant with explicit accounting scopes.
+\end{enumerate}
+
+The first phase was diagnostic. The goal was to make the full local stack run: Hardhat node,
+contract deployment scripts, Rust and WebAssembly artifacts, SQLite database, Next.js
+application, Alto bundler, and optional Electron shell. This phase was not only installation
+work. It established which code paths were actually used by the application and which
+contracts were only present as historical or testing artifacts.
+
+The second phase was protocol mapping. The paper describes the protocol as a sequence of
+steps, while the implementation exposes functions, API routes, UI actions, and benchmark
+helpers. A gas number is meaningful only if the measured code can be mapped back to a
+protocol action. This mapping was especially important for the dispute phase, where a single
+informal label such as ``dispute cost'' can refer to deployment, trigger, challenge rounds,
+Step 8 verification, finalization, or all of them together.
+
+The third phase was implementation. The first implementation strategy was conservative:
+support variants by extending the existing contracts. This was useful for functional
+validation, but it produced monolithic contracts with many branches. After the first gas
+measurements and feedback from the supervisor, the implementation strategy was revised:
+variant selection should happen off-chain or at deployment time, and the smart contract used
+for one exchange should not carry unrelated modes. This led to the specialized final
+implementation described in later chapters.
+
+The fourth phase was measurement and consistency checking. Several early measurements were
+individually correct but not directly comparable because they mixed scopes. The final
+methodology therefore treats measurement scope as part of the experimental result. Every
+reported number must specify which implementation was measured, which protocol steps were
+included, and whether the cost is one-time infrastructure cost or marginal per-exchange
+cost.
+
+\section{Reproducibility strategy}
+
+The reproducibility strategy has two layers. The first layer is executable reproducibility:
+the repository contains scripts and tests that can recreate the local stack and rerun the
+measurements. The second layer is accounting reproducibility: the report explains exactly how
+to recombine the measured components.
+
+The local stack is started with the root scripts documented in the repository. In the normal
+development workflow, a Hardhat node is started first, \path{deploy-all.sh} deploys the
+contract stack and writes deployment information, \path{run-alto.sh} starts the Alto bundler,
+and \texttt{npm\ run\ dev} starts the Next.js application. This is the same environment used for
+interactive demonstrations.
+
+For gas measurements, the main source of reproducibility is the Hardhat test suite under
+\path{src/hardhat/test/performance}. These tests deploy their own local contracts, execute
+transactions, and read gas from actual transaction receipts. The tests avoid relying on
+manual UI actions for the final numbers. The UI is useful to demonstrate the proof of
+concept, but scripted tests are more appropriate for repeatable accounting.
+
+The benchmarks also control cryptographic inputs whenever possible. Small and medium files
+are generated deterministically inside the test code. The AES key is fixed in gas tests so
+that the same circuit and commitments can be reproduced. Large-file tests create temporary
+input files and validate the resulting number of ciphertext blocks and gates before running
+the dispute scenario. Temporary artifacts are removed after the test when the benchmark
+finishes.
+
+This strategy does not mean that all timings are machine-independent. Gas measurements are
+deterministic for a fixed compiler, contract version, and local EVM configuration. Off-chain
+timings depend on the machine, file system, and runtime environment. The report therefore
+separates gas results from wall-clock timings and never uses local CPU time as a substitute
+for on-chain gas.
+
+\section{Mapping code functions to protocol steps}
+
+The implementation uses names that are convenient for Solidity and frontend code, but they
+do not always match the step names used in the paper. The mapping in
+Table~\ref{tab:methodology-step-mapping} is the one used throughout the measurements.
+
+\begin{table}[htbp]
+  \centering
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.30\linewidth}>{\raggedright\arraybackslash}p{0.17\linewidth}>{\raggedright\arraybackslash}X}
+    \toprule
+    Implementation action & Protocol step & Measurement consequence \\
+    \midrule
+    \texttt{triggerDispute} &
+    Step 6 &
+    Starts the dispute path. In the measured contracts this action may also deploy or create
+    the dispute account, so it must not be interpreted as a small state transition only. \\
+    \texttt{respondChallenge} &
+    Step 7b &
+    Buyer-side answer to the current challenge. Together with \texttt{giveOpinion}, it forms
+    one challenge round. \\
+    \texttt{giveOpinion} &
+    Step 7c &
+    Vendor-side answer that updates the binary-search interval. \\
+    \texttt{submitCommitment} variants &
+    Step 8 &
+    Local verification step. Depending on the state, it verifies a generic gate, a left
+    boundary condition, or a right/final condition. \\
+    \texttt{finalize} or final state transition &
+    Step 9 &
+    Ends the current dispute execution or applies the protocol consequence determined by the
+    sponsor configuration. \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Mapping used to interpret implementation-level gas measurements.}
+  \label{tab:methodology-step-mapping}
+\end{table}
+
+This mapping also explains why the number of Step 7--8 iterations matters. In normal
+sponsored disputes, the protocol may require more than one execution of the challenge and
+verification loop because of sponsor rotation. In self-sponsored cases such as \(S_B=B\) and
+\(S_V=V\), the same party also plays the relevant sponsor role, so unnecessary repetitions
+can be removed. The methodology therefore reports both per-call costs and complete dispute
+costs when needed.
+
+\section{Gas accounting scopes}
+
+The most important methodological decision was to define gas scopes before comparing
+implementations. The project uses the scopes in Table~\ref{tab:methodology-gas-scopes}.
+
+\begin{table}[htbp]
+  \centering
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.25\linewidth}>{\raggedright\arraybackslash}X}
+    \toprule
+    Scope & Meaning \\
+    \midrule
+    One-time infrastructure &
+    Gas paid once to deploy reusable components such as verifier libraries, dispute
+    deployers, implementation contracts, or the factory. These costs are not paid again for
+    every exchange if the infrastructure is reused. \\
+    Marginal optimistic exchange &
+    Gas paid for one honest exchange after reusable infrastructure already exists. Depending
+    on the variant, this includes clone creation or direct deployment and calls such as
+    payment, key release, and completion. \\
+    Optimistic path before dispute &
+    Gas paid to reach the point where a dispute can be triggered. This includes optimistic
+    deployment or creation and the payments or deposits needed before Step 6. \\
+    Dispute trigger / initialization &
+    Gas paid by \texttt{triggerDispute}. In the measured architecture this may include
+    deployment or creation of the dispute contract. \\
+    Dispute after trigger &
+    Gas paid after the dispute contract exists: challenge rounds, Step 8 verification, and
+    finalization. \\
+    Single Step 8 call &
+    Gas paid by one \texttt{submitCommitment}-type call only. This scope isolates local
+    verifier changes, for example the removal of \(\pi_1\) in the hardcoded SHA-256 mode. \\
+    End-to-end dispute path &
+    Combination of optimistic setup, dispute trigger, post-trigger dispute execution, and
+    finalization for a full disputed exchange. \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Gas accounting scopes used in the report.}
+  \label{tab:methodology-gas-scopes}
+\end{table}
+
+This separation avoids two common mistakes. The first mistake is comparing a one-time
+infrastructure deployment to a per-exchange deployment. This would make clone-based
+architectures look artificially expensive at setup time or artificially cheap at exchange
+time. The second mistake is comparing a single Step 8 optimization with a complete dispute.
+For example, removing the generic circuit proof \(\pi_1\) can save gas locally in Step 8,
+but the total dispute also includes trigger, challenge rounds, proof verification for other
+commitments, gate evaluation, and finalization.
+
+Gas is always taken from transaction receipts, not from informal estimates. In the tests this
+is done by waiting for the transaction receipt and reading the \texttt{gasUsed} field. This
+matters because storage writes, warm/cold accesses, deployment bytecode, and repeated calls
+can make the real gas different from a rough estimate.
+
+\section{Off-chain timing methodology}
+
+Off-chain timings are measured separately from gas. They are used to evaluate the practical
+cost of preparing precontracts, computing dispute witnesses, and generating the data needed
+for challenge rounds. They do not represent blockchain confirmation time and they are not
+converted into gas.
+
+Two execution paths are used:
+
+\begin{itemize}
+  \item the WebAssembly path, used by the application and by several tests for small or
+  medium inputs;
+  \item the native Rust command line path, used for large-file experiments and for the 1 GiB
+  hardcoded SHA-256 dispute benchmark.
+\end{itemize}
+
+The native path is essential for large files. The browser path is useful for a proof-of-
+concept demonstration, but it is not the right benchmark environment for 1 GiB inputs. The
+native \path{precontract_cli} measures the cost of reading the input file, encrypting it,
+building the circuit, computing commitments, and writing the ciphertext and circuit
+artifacts. The native \path{hardcoded_sha256_dispute_cli} measures the off-chain generation
+of challenge-round values and the final Step 8 witness data for the hardcoded SHA-256
+scenario.
+
+The timing methodology is conservative in interpretation. When a benchmark reports the time
+needed to prepare a precontract, this is primarily the vendor-side preparation time in the
+current implementation. A fully protocol-level performance table may also account for the
+buyer-side verification work, even if the current application does not perform an identical
+recomputation before acceptance. Similarly, challenge-response generation is measured for
+the party producing the response, while a complete protocol accounting may also include the
+counterparty's verification work. The report therefore distinguishes measured implementation
+time from conservative protocol-level estimates.
+
+\section{Benchmarking environment}
+
+The on-chain benchmarks are run on a local Hardhat network. The Solidity compiler version is
+\texttt{0.8.28}, with optimization enabled, compilation through the intermediate
+representation, and optimizer runs set to one. The local network is configured to allow large
+contracts, which is useful for testing and for comparing architectures, but it is not a
+mainnet guarantee. When mainnet deployability matters, contract bytecode size must be checked
+separately.
+
+Most gas tests deploy a mock EntryPoint or local EntryPoint-compatible contract rather than
+depending on a live external bundler. This makes the measurements deterministic and keeps the
+focus on contract gas rather than on bundler behavior. The interactive application, by
+contrast, uses the local Alto bundler and the configured EntryPoint address. Both paths are
+useful, but they answer different questions:
+
+\begin{itemize}
+  \item Hardhat tests answer: how much gas does this contract path consume?
+  \item The full application answers: can the proof of concept be executed through the UI and
+  account-abstraction infrastructure?
+\end{itemize}
+
+The benchmarks report gas units only. They do not multiply by an ETH price or by a gas price,
+because such conversions are time-dependent and would not be stable. They also do not claim
+to model L1 congestion, bundler policies, or wallet UX. Those topics are important for
+deployment, but the experimental goal of this project is to compare protocol variants under
+a controlled local EVM configuration.
+
+\section{Validation strategy}
+
+Validation was performed at several levels.
+
+\paragraph{Functional validation.}
+The application was run end-to-end on the local stack. This validated the practical path from
+precontract creation to buyer acceptance, contract sponsorship or deployment, buyer payment,
+vendor key release, and optimistic completion. This is the path used for demonstrations.
+
+\paragraph{Contract-level validation.}
+Hardhat tests exercise the optimistic and dispute contracts directly. They check state
+transitions, role restrictions, deployment paths, challenge rounds, and Step 8 submissions.
+The performance tests also include assertions on expected values such as the number of
+blocks, number of gates, and number of challenge rounds for the generated circuit.
+
+\paragraph{Variant validation.}
+Separate tests cover the final specialized architecture, including the normal case,
+no \(S\)-deposit, \(S=B\), \(S=V\), self-sponsored dispute execution, and hardcoded
+SHA-256. The purpose is not only to obtain gas numbers but also to ensure that the variants
+still execute the intended protocol path.
+
+\paragraph{Same-scope comparison.}
+Several tests were written specifically to avoid comparing incompatible measurements. For
+example, one set of benchmarks measures the current implementation with the same high-level
+scope as the previous implementation report, while another set compares monolithic and
+specialized variants under the same file size and dispute path. This same-scope discipline
+was added because early tables were difficult to interpret when they mixed architectural
+versions.
+
+\paragraph{Large-file validation.}
+The 1 GiB hardcoded SHA-256 benchmark validates the large-file path with native CLIs. The
+test checks that the generated number of blocks and gates matches the expected values,
+executes all challenge rounds for the chosen path, submits the final Step 8 witness, and
+finalizes the dispute. This validates the feasibility of the large-file pipeline in the
+measured scenario.
+
+This validation strategy is practical rather than formal. It increases confidence that the
+implementation and measurements correspond to the intended protocol flows, but it does not
+replace a full proof of security. In particular, the inherited gate encoding and Merkle
+domain-separation questions identified later remain protocol-engineering issues for a future
+clean version.

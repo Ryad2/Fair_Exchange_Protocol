@@ -1,0 +1,266 @@
+\chapter{Correctness and Security Analysis}
+\label{chap:correctness-security}
+
+\section{Functional correctness of the optimistic path}
+
+This chapter analyzes implementation correctness and security at the level of the codebase
+developed during the project. It is not a formal proof of the SOX protocol. The goal is more
+practical: identify which properties are enforced by the implementation, which properties
+are covered by tests, and which issues remain as limitations or future work.
+
+The optimistic path is implemented as a state machine. The relevant states are payment,
+key release, buyer-side dispute sponsor registration, vendor-side dispute sponsor
+registration, dispute, and final state. Each transition checks both the current state and the
+expected actor. In the direct normal ERC-4337-compatible contract, this check can be
+satisfied either by the actor directly or through a validated UserOperation context. In the
+specialized clone contracts, it is satisfied by direct calls from the expected address.
+
+The precontract variants modify the optimistic path only where the protocol requires it.
+The normal path starts by waiting for buyer payment. The no-deposit path also waits for
+buyer payment, but removes the optimistic sponsor deposit and reduces the required buyer
+payment to the agreed price. The \(S=B\) path fuses creation and buyer payment: the buyer is
+the deployer, the buyer deposit is recorded during initialization, and the contract starts
+waiting for the key. The \(S=V\) path requires the vendor to be the sponsor, but still waits
+for the buyer payment.
+
+Correctness of these transitions is checked at three levels. First, the frontend validates
+obvious role constraints before deployment. Second, the factory and specialized contracts
+repeat the same constraints on-chain. Third, the Hardhat tests verify the resulting state
+and deposits. In particular, the tests check that:
+
+\begin{itemize}
+  \item the no-deposit variant records no sponsor deposit and rejects unexpected value;
+  \item the \(S=B\) variant starts after the buyer payment has already been recorded;
+  \item the \(S=V\) variant enforces the vendor as deployer and still waits for buyer
+  payment;
+  \item unsafe combinations, underfunded deployments, and unauthorized actor calls revert;
+  \item the 12 role combinations studied in Phase 2 can be executed in the test matrix.
+\end{itemize}
+
+The application also contains a native precontract verification route. When the buyer views
+a non-accepted precontract, the UI can call \path{/api/precontracts/verify}, which invokes
+\path{check_precontract_cli}. This recomputes the ciphertext and circuit commitments from
+the stored ciphertext, description, commitment, and opening value. Thus, the implementation
+contains a concrete verification mechanism for the buyer-facing precontract data. The
+current proof-of-concept interface should still be read as a local demonstration client, not
+as a fully hardened wallet-integrated client.
+
+\section{Functional correctness of the dispute path}
+
+The dispute path begins only after the optimistic contract has reached the appropriate
+state. The dispute constructor checks that the optimistic contract is waiting for the
+vendor-side dispute sponsor, that a buyer-side dispute sponsor has already been set, that
+the circuit version is supported, that the number of gates is non-zero, and that sufficient
+funds are available. This prevents a dispute account from being initialized from an
+inconsistent optimistic state.
+
+The normal dispute contract implements the binary-search structure of Step 7. The interval
+is represented by \(a\), \(b\), and \texttt{chall}. The buyer publishes a response for the
+current challenge, the vendor gives an opinion, and the interval is updated until a boundary
+or a single gate is reached. Depending on the final challenge value, the contract enters one
+of the Step 8 states: left boundary, right boundary, or ordinary gate verification.
+
+The Step 8 verification path checks several commitments at once. For an ordinary gate, the
+contract opens the global commitment to recover \(h_{\mathit{circuit}}\) and
+\(h_{\mathit{ct}}\). It checks that the supplied gate belongs to the circuit accumulator,
+that ciphertext inputs used by the gate belong to \(h_{\mathit{ct}}\), that previous values
+belong to the previous \(hpre\), and that the gate output extends the accumulator to the
+current value. The Solidity implementation uses the V2 evaluator to recompute the selected
+gate result on-chain.
+
+The Step 9 logic is also tested in both normal and self-sponsored configurations. In the
+normal dispute contract, Step 9 may relaunch the challenge loop when the losing party is not
+the corresponding sponsor. In the self-sponsored dispute contract, this loop is specialized:
+if \(S_B=B\) and \(S_V=V\), the contract moves directly toward completion or cancellation
+after the Step 8 result. This is intentionally a small override of Step 9 rather than a full
+rewrite of the dispute verifier.
+
+Functional tests and performance tests both exercise the dispute path. The tests include
+normal disputes, self-sponsored disputes, hardcoded disputes, same-scope comparisons, and a
+native 1 GiB hardcoded benchmark that executes precontract generation, every challenge
+round, Step 8 left-boundary submission, and finalization. These tests do not constitute a
+formal proof, but they are strong regression tests for the implemented state transitions and
+the measured scenarios.
+
+\section{Correctness of the hardcoded SHA-256 mode}
+
+The hardcoded \(\mathsf{SHA256}\) mode has a narrower correctness objective than the generic
+circuit mode. It does not try to support arbitrary descriptions. It supports the case where
+the description is \(desc=\mathsf{SHA256}(x)\), and where the circuit layout is completely
+determined by public metadata.
+
+The optimistic hardcoded contract fixes this mode at deployment time. It stores the
+description hash, plaintext length, and ciphertext IV, and verifies that the supplied number
+of blocks and number of gates match the hardcoded layout. This prevents the vendor from
+waiting until Step 8 to choose between the generic and hardcoded interpretations.
+
+The dispute contract then reconstructs the expected gate bytes through
+\path{HardcodedSha256CircuitLib.sol}. The library determines whether the gate is an AES-CTR
+block gate, a padding gate, a SHA-256 compression gate, the description constant, or the
+final comparison gate. The strict hardcoded tests call Step 8 with empty generic circuit
+inputs: \texttt{gateBytes = 0x} and an empty \(\pi_1\). The contract therefore does not rely
+on a vendor-supplied circuit gate as the source of truth.
+
+This does not mean that Step 8 becomes witness-free. The contract does not store the entire
+ciphertext or all intermediate values. The vendor still supplies values needed to evaluate
+the selected gate. These values are checked against \(h_{\mathit{ct}}\), previous \(hpre\),
+and extension proofs before the result is accepted. The hardcoded improvement is therefore
+specific: the contract determines \(g_i\), while the supplied \(v_i\)-style values remain
+authenticated witnesses.
+
+The hardcoded mode also reduces exposure to the generic circuit-encoding ambiguities
+discussed below, because the gate bytes are reconstructed by the contract for this
+particular SHA-256 layout. It does not, however, fix the generic V2 circuit format for other
+descriptions.
+
+\section{Sponsor safety and incentive preservation}
+
+The project changed the sponsor structure, so it was important not to introduce a path where
+one actor can force another actor into a disadvantageous state. The implementation addresses
+this through on-chain role checks and through explicit authorization when a third party acts
+as buyer-side dispute sponsor.
+
+For precontract-time sponsor equalities, the checks are simple. The \(S=B\) factory path and
+contract require the deployer to be the buyer. The \(S=V\) path requires the deployer to be
+the vendor. The no-deposit path requires zero initial value and removes the sponsor
+reimbursement accounting from the optimistic phase. These checks are enforced on-chain, not
+only in the UI.
+
+For dispute-time sponsorship, the delicate case is an external \(S_B\). The supervisor
+correctly pointed out that an external buyer-side dispute sponsor must not be able to claim
+that the buyer is unhappy without the buyer's consent. The implementation therefore includes
+an authorization-based function for external \(S_B\). The signed statement binds the buyer's
+authorization to the chain id, the optimistic contract address, the buyer address, the
+chosen \(S_B\), and the commitment. This prevents reuse across different exchanges or
+different proposed sponsors.
+
+For \(S_B=B\) and \(S_V=V\), the implementation uses explicit self-sponsored entry points.
+This makes the Step 4--5 fusion and the Step 9 specialization transparent. The gas benefit
+therefore comes from removing unnecessary repeated dispute iterations, not from skipping
+authorization checks or weakening the dispute verifier.
+
+The economic incentive analysis remains within the scope of the implemented protocol model.
+The code preserves the relevant deposits and payouts of the tested scenarios, but it does
+not attempt to solve all off-chain availability or censorship risks. Those assumptions are
+separated below.
+
+\section{Encoding ambiguities in the inherited circuit format}
+
+The V2 circuit format encodes each gate on exactly 64 bytes:
+
+\[
+  \text{opcode} \parallel \text{sons} \parallel \text{parameters}
+  \parallel \text{zero padding}.
+\]
+
+Sons are signed 48-bit indices encoded on 6 bytes. Positive indices point to previous gates;
+negative indices point to ciphertext input blocks. The generator uses opcodes for AES-CTR,
+SHA2, CONST, XOR, and COMP. The Solidity evaluator checks the opcode, parameter length,
+padding, arity-dependent constraints, and rejects zero gate indices in the extraction logic.
+
+Nevertheless, the inherited format is not as clean as it should be for a final protocol
+specification. The arity is not explicitly encoded. For some calls, the Solidity parser
+infers arity from the position at which the remaining bytes become zero padding. For other
+Step 8 calls, the expected arity is effectively determined by the number of supplied witness
+values. This works for the generated circuits used in the tests, but it is not a robust
+canonical encoding rule.
+
+The problematic cases are exactly the cases identified during the project discussion. A
+SHA2 gate may have one or two sons, and a CONST gate may have zero or one son. Without an
+explicit arity or distinct opcodes, a byte string can be interpreted differently depending
+on whether the parser treats a field as a son or as part of the constant payload. The current
+padding checks reduce accidental ambiguity, but they do not give the format the clean
+separation one would want in a paper-ready specification.
+
+The clean fix is to define a new circuit version with unambiguous opcodes or an explicit
+arity byte. For example, one could separate CONST-without-son from CONST-with-son, and
+separate the first SHA-256 compression gate from subsequent SHA-256 compression gates. Such
+a change would require updating the Rust circuit generator, the Solidity evaluator, the
+hardcoded layout, tests, and all commitment computations. For this semester project, the
+format was analyzed and documented, but the generic V2 encoding was not replaced because
+that would have changed the baseline being measured.
+
+\section{Merkle tree domain separation issues}
+
+The second inherited cryptographic issue is the accumulator construction. The implementation
+builds Merkle-style accumulators with \(\mathrm{keccak256}\). Leaves are hashes of encoded
+objects, and internal nodes are hashes of two child hashes. In the current format, however,
+leaf hashing and node hashing are not domain-separated, and an odd element at a layer is
+copied upward unchanged.
+
+This creates two well-known sources of ambiguity. First, copying a lonely node upward means
+that two different tree shapes can lead to the same value if the proof format does not
+fully determine the shape. Second, using the same hash domain for leaves and internal nodes
+allows a 64-byte encoded leaf to have the same byte length as two 32-byte child hashes
+concatenated. In a cryptographic specification, this is exactly the kind of ambiguity that
+should be avoided by construction rather than argued away case by case.
+
+The source code itself already contains a warning about the lonely-node case in the Rust
+accumulator implementation. The Solidity verifier mirrors the same accumulator convention
+for compatibility with the generated proofs. Therefore, this is not a bug introduced by the
+new sponsoring or hardcoded variants. It is an inherited accumulator-design limitation.
+
+The appropriate fix is a new accumulator version with explicit domain separation. A clean
+design would use distinct prefixes, for example
+
+\[
+  \mathsf{leaf} = H(0x00 \parallel \mathsf{encodedLeaf}), \qquad
+  \mathsf{node} = H(0x01 \parallel \mathsf{left} \parallel \mathsf{right}),
+\]
+
+and a separate rule for single-child promotion, such as hashing it with its own prefix
+rather than copying it unchanged. This would need to be applied consistently to
+\(h_{\mathit{circuit}}\), \(h_{\mathit{ct}}\), \(hpre\), proof generation, and Solidity
+verification. It was not patched in the final implementation because it would create a new
+commitment format and make the gas comparison with the initial implementation less direct.
+
+\section{ERC-4337 trust and liveness assumptions}
+
+The original implementation uses ERC-4337-style UserOperations and an Alto bundler in the
+normal path. The contracts validate signatures through \texttt{validateUserOp}, store the
+role associated with the last validated operation, and then allow the account to execute the
+corresponding role action. This protects against arbitrary execution through the EntryPoint:
+the recovered signer must match the buyer, vendor, or dispute sponsor role expected by the
+state transition.
+
+However, ERC-4337 also introduces liveness assumptions that are not part of the pure SOX
+protocol. A bundler may be unavailable, may refuse to include a UserOperation, or may require
+different gas policies. A paymaster or EntryPoint deposit can also become an operational
+dependency. These are not cryptographic breaks of the smart contract state machine, but
+they are relevant for a practical fair-exchange system.
+
+For this reason, the final architecture separates the optimized clone variants from the
+normal account-abstraction path. The clone variants do not claim ERC-4337 support; they are
+used for direct-transaction gas measurements and for simplified modes. The normal path
+remains available for demonstrating the inherited account-abstraction integration. This
+separation avoids hiding bundler assumptions inside the gas-optimized variants.
+
+\section{Remaining security limitations}
+
+The implementation should be read as a research prototype, not as production software. The
+following limitations remain after the project:
+
+\begin{itemize}
+  \item The generic V2 circuit encoding is not fully canonical because arity is not encoded
+  explicitly for all gate families.
+  \item The Merkle accumulators lack domain separation and use copy-up behavior for lonely
+  nodes.
+  \item The proof-of-concept UI uses predefined development addresses and does not implement
+  a production wallet authentication model.
+  \item Some cryptographic material and intermediate commitments are stored in browser local
+  storage during the demonstration workflow.
+  \item The backend stores ciphertext artifacts centrally. Commitments make tampering
+  detectable, but the backend is still an availability dependency.
+  \item The hardcoded mode is implemented only for the \(desc=\mathsf{SHA256}\) circuit
+  layout, not for arbitrary descriptions.
+  \item The 1 GiB hardcoded dispute benchmark demonstrates a specific full path and witness
+  generation strategy; it is not a complete generic dispute UI for every possible large-file
+  scenario.
+  \item The work relies on extensive automated tests and measurements, but it does not
+  include a machine-checked formal proof of the Solidity implementation.
+\end{itemize}
+
+These limitations do not invalidate the results of the project. They define the boundary of
+the contribution. The implemented work improves the gas architecture, adds and tests the
+main protocol variants, makes large-file experiments practical, and identifies the inherited
+cryptographic encoding issues that should be addressed in a future protocol version.

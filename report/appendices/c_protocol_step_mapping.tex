@@ -1,0 +1,66 @@
+\chapter{Protocol-Step Mapping Table}
+\label{app:protocol-step-mapping}
+
+The implementation uses function names that do not exactly match the step numbering of the
+protocol paper. This appendix records the mapping used for all measurements.
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.27\linewidth}>{\raggedright\arraybackslash}p{0.18\linewidth}>{\raggedright\arraybackslash}X}
+    \toprule
+    Implementation action & Protocol step & Measurement meaning \\
+    \midrule
+    Contract creation / initialization & Step 1 & Deployment or clone creation of the
+    optimistic exchange account. In the clone architecture, this is a marginal proxy
+    creation once the implementation exists. \\
+    \texttt{sendPayment} & Step 2 & Buyer payment. In the \(S=B\) optimized path this
+    payment is fused with creation/initialization. \\
+    \texttt{sendKey} & Step 3 & Vendor key release in the honest optimistic path. \\
+    Buyer-side sponsor fee call & Step 4--5 & Buyer-side dispute sponsor
+    registration and deposit. In the \(S_B=B\) case this is logically self-sponsored. \\
+    Dispute trigger / vendor-side fee & Step 6 & Vendor-side dispute
+    sponsor registration and deployment of the dispute account. In many tests this is a
+    large transaction because it includes deployment. \\
+    \texttt{respondChallenge} & Step 7b & Buyer publishes the current \(hpre_i\) value for
+    the binary search. \\
+    \texttt{giveOpinion} & Step 7c & Vendor accepts or rejects the buyer's response,
+    updating the binary-search interval. \\
+    Commitment submission & Step 8 & On-chain
+    verification of the disputed gate, authenticated values, and accumulator proofs. \\
+    Dispute finalization & Step 9 & Finalization or
+    cancellation after the dispute outcome. \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Mapping between implementation actions and protocol steps.}
+  \label{tab:app-step-mapping}
+\end{table}
+
+\section{Scope definitions}
+
+\begin{table}[htbp]
+  \centering
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.28\linewidth}>{\raggedright\arraybackslash}X}
+    \toprule
+    Scope & Included operations \\
+    \midrule
+    Optimistic path & Step 1, Step 2, Step 3, and completion when no dispute occurs. \\
+    Dispute trigger & Step 6, often including vendor-side sponsor deposit and deployment
+    of the dispute account. \\
+    Dispute after trigger & Step 7b, Step 7c, Step 8, and Step 9 after the dispute account
+    exists. \\
+    Complete dispute path & Optimistic setup, trigger, challenge rounds, Step 8, and
+    finalization. \\
+    Marginal clone cost & Per-exchange cost after factory and implementation contracts
+    are already deployed. \\
+    Fixed infrastructure cost & One-time deployment of reusable factory or implementation
+    contracts. \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Gas-accounting scopes used throughout the report.}
+  \label{tab:app-scope-definitions}
+\end{table}
+
+The most important caution is that \texttt{triggerDispute} should not be interpreted as a
+small state transition. In the measured implementation, it often includes deployment of a
+new dispute account, which explains why it dominates several complete dispute totals.

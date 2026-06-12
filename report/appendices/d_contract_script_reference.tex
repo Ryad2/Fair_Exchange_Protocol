@@ -1,0 +1,94 @@
+\chapter{Contract and Script Reference}
+\label{app:contract-script-reference}
+
+This appendix lists the main implementation files that are relevant for reproducing and
+auditing the project. It is a navigation aid, not a substitute for the code.
+
+\section{Solidity contracts}
+
+\begin{table}[H]
+  \centering
+  \small
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.34\linewidth}>{\raggedright\arraybackslash}X}
+    \toprule
+    Component & Role \\
+    \midrule
+    \texttt{SOXFactory} & Creates minimal optimistic clones for the precontract-time
+    variants. \\
+    Optimistic clone contracts & Specialized optimistic escrow implementations for
+    normal, no-deposit, \(S=B\), and \(S=V\) modes. \\
+    Direct normal optimistic account & Inherited direct normal account, including the
+    ERC-4337-compatible path used by the original application. \\
+    Hardcoded optimistic account & Direct optimistic account for the
+    hardcoded \(desc=\mathsf{SHA256}\) path. \\
+    Normal dispute account & Generic dispute account for normal disputes. \\
+    Self-sponsored dispute account & Specialized Step 9 handling for
+    \(S_B=B\) and \(S_V=V\). \\
+    Hardcoded dispute account & Hardcoded dispute account that
+    reconstructs SHA-256 gates without \(\pi_1\). \\
+    Hardcoded SHA-256 circuit library & Library reconstructing the expected hardcoded
+    SHA-256 circuit gates from public metadata. \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Main Solidity components.}
+  \label{tab:app-solidity-reference}
+\end{table}
+
+\section{Rust and application components}
+
+\begin{table}[H]
+  \centering
+  \small
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.34\linewidth}>{\raggedright\arraybackslash}X}
+    \toprule
+    File or directory & Role \\
+    \midrule
+    \path{src/wasm/src/bin/precontract_cli.rs} & Native precontract generation. \\
+    \path{src/wasm/src/bin/check_precontract_cli.rs} & Native verification of received
+    precontract data. \\
+    \path{src/wasm/src/bin/compute_proofs_cli.rs} & Native helper for the current proof
+    generation API. \\
+    \path{src/wasm/src/bin/hardcoded_sha256_dispute_cli.rs} & Native generation of
+    hardcoded dispute witnesses for large-file benchmarks. \\
+    \path{src/app/api/precontracts/verify/route.ts} & Backend route invoking the native
+    precontract checker. \\
+    \path{src/app/api/precontracts/accept/route.ts} & Proof-of-concept acceptance route;
+    it does not enforce verification as a backend precondition. \\
+    \path{src/app/components/user/NewContractModal.tsx} & User-facing precontract creation
+    and variant selection. \\
+    \path{src/app/lib/protocol-variants.ts} & TypeScript definition of user-facing
+    protocol variants. \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Main Rust, backend, and frontend components.}
+  \label{tab:app-rust-frontend-reference}
+\end{table}
+
+\section{Scripts and benchmark files}
+
+\begin{table}[H]
+  \centering
+  \small
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.36\linewidth}>{\raggedright\arraybackslash}X}
+    \toprule
+    Script or test & Role \\
+    \midrule
+    \path{install.sh} & Installs dependencies, initializes the database, and prepares the
+    bundler. \\
+    \path{deploy-all.sh} & Deploys the local EntryPoint, simulation contracts, SOX
+    contracts, factory, and implementation addresses. \\
+    \path{run-alto.sh} & Starts the Alto bundler on the local chain. \\
+    \path{start-web.sh} / \texttt{npm\ run\ dev} & Starts the Next.js frontend. \\
+    Initial-scope comparison test & Remeasures the current repository in the same
+    scope as the initial implementation. \\
+    Specialized architecture test & Measures the specialized contract
+    architecture and bytecode-related costs. \\
+    Final same-scope test & Measures final specialized contracts in
+    same-scope 4 MiB and 16 KiB scenarios. \\
+    Native 1 GiB hardcoded test & Executes the native hardcoded
+    1 GiB full-dispute benchmark. \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Main scripts and benchmark entry points.}
+  \label{tab:app-script-reference}
+\end{table}

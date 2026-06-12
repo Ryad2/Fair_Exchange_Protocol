@@ -3,13 +3,7 @@ import hre from "hardhat";
 import "@nomicfoundation/hardhat-chai-matchers";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import {
-    bytes_to_hex,
-    compute_precontract_values_v2,
-    compute_proofs_v2,
-    evaluate_circuit_v2_wasm,
-    initSync,
-} from "../../app/lib/crypto_lib/crypto_lib";
+import { pathToFileURL } from "node:url";
 
 const { ethers } = hre;
 
@@ -117,11 +111,35 @@ type LargeCircuitGasBreakdown = {
 };
 
 let wasmInitialized = false;
+let cryptoLibLoaded = false;
+let bytes_to_hex: any;
+let compute_precontract_values_v2: any;
+let compute_proofs_v2: any;
+let evaluate_circuit_v2_wasm: any;
+let initSync: any;
+
+async function loadCryptoLibOnce() {
+    if (cryptoLibLoaded) {
+        return;
+    }
+
+    const cryptoLibPath = pathToFileURL(
+        join(__dirname, "../../app/lib/crypto_lib/crypto_lib.js")
+    ).href;
+    const cryptoLib = await (0, eval)(`import(${JSON.stringify(cryptoLibPath)})`);
+    bytes_to_hex = cryptoLib.bytes_to_hex;
+    compute_precontract_values_v2 = cryptoLib.compute_precontract_values_v2;
+    compute_proofs_v2 = cryptoLib.compute_proofs_v2;
+    evaluate_circuit_v2_wasm = cryptoLib.evaluate_circuit_v2_wasm;
+    initSync = cryptoLib.initSync;
+    cryptoLibLoaded = true;
+}
 
 async function initWasmOnce() {
     if (wasmInitialized) {
         return;
     }
+    await loadCryptoLibOnce();
     const wasmPath = join(__dirname, "../../app/lib/crypto_lib/crypto_lib_bg.wasm");
     const wasmBytes = await readFile(wasmPath);
     initSync({ module: wasmBytes });

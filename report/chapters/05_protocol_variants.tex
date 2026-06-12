@@ -1,0 +1,334 @@
+\chapter{Protocol Variants and Design Choices}
+\label{chap:variants}
+
+\section{Motivation for protocol variants}
+
+The inherited implementation supported the main optimistic and dispute flows, but it did so
+through contracts that were close to a ``one-size-fits-all'' design. This was convenient for
+experimentation, because a single contract family could execute many scenarios. It was less
+suitable for gas optimization. A contract that supports every role configuration must keep
+state variables, checks, branches, and deployment bytecode that are irrelevant for many
+exchanges. The central design question of the project therefore became: which variants are
+protocolically meaningful, and which of them justify a separate implementation path?
+
+The answer is not simply the Cartesian product of all possible role equalities. Some choices
+are known at precontract time, before the optimistic contract is created. Other choices are
+only known if the optimistic path fails and the parties enter the dispute path. The final
+implementation separates these two moments. Precontract-time variants select the optimistic
+contract to deploy or clone. Dispute-time variants select the appropriate dispute contract
+when the dispute sponsors actually appear.
+
+Table~\ref{tab:variant-classification} summarizes the classification used in the
+implementation. The table is also the convention used in the rest of the report.
+
+\begin{table}[htbp]
+  \centering
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.22\linewidth}>{\raggedright\arraybackslash}p{0.25\linewidth}>{\raggedright\arraybackslash}X}
+    \toprule
+    Variant & Decision time & Main effect \\
+    \midrule
+    Normal sponsored SOX &
+    Precontract / deployment &
+    Baseline model with an optimistic sponsor \(S\) and potentially distinct dispute
+    sponsors \(S_B\) and \(S_V\). \\
+    \texttt{no\_S\_deposit} / simSOX &
+    Precontract / deployment &
+    Removes the optimistic sponsor deposit and the corresponding reimbursement logic from
+    the optimistic phase. \\
+    \(S=B\) &
+    Precontract / deployment &
+    Makes the buyer the optimistic sponsor and allows the implementation to fuse the buyer
+    payment with the initial creation step. \\
+    \(S=V\) &
+    Precontract / deployment &
+    Makes the vendor the optimistic sponsor. The buyer payment remains a later optimistic
+    action in the current implementation. \\
+    \(S_B=B\) &
+    After buyer dissatisfaction &
+    Makes the buyer its own dispute sponsor and makes the Step 4--5 fusion trivial. \\
+    \(S_V=V\) &
+    After buyer dissatisfaction &
+    Makes the vendor its own dispute sponsor. Together with \(S_B=B\), it removes the need
+    for a sponsor-rotation repetition in Step 9. \\
+    Hardcoded \(\mathsf{SHA256}\) &
+    Precontract / deployment &
+    Replaces the generic circuit-opening check for \(h_{\mathit{circuit}}\) in Step 8 by an
+    on-chain reconstruction of the expected \(\mathsf{SHA256}\) circuit gate. \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Protocol variants retained for implementation and measurement.}
+  \label{tab:variant-classification}
+\end{table}
+
+The guiding principle is that a variant is worth implementing separately only if it changes
+the cost, risk, or latency of a protocol path. Exotic role equalities that do not change the
+execution path are still valid theoretical cases, but they do not necessarily deserve their
+own contract. This choice keeps the implementation close to the supervisor feedback:
+optimize the cases that matter for measurement, and avoid paying gas for branches that are
+not used in the selected mode.
+
+\section{Normal sponsored SOX}
+
+The normal sponsored variant is the reference point. It keeps the full role structure of the
+SOX protocol: vendor \(V\), buyer \(B\), optimistic sponsor \(S\), buyer-side dispute sponsor
+\(S_B\), and vendor-side dispute sponsor \(S_V\). In this mode, the optimistic sponsor creates
+the exchange contract and deposits the funds needed by the optimistic mechanism. The buyer
+then pays, the vendor releases the key, and the exchange either completes or moves toward a
+dispute.
+
+In implementation terms, the final codebase keeps a normal clone implementation for
+factory-based measurements, while the interactive application keeps the direct normal
+account path for compatibility with the existing ERC-4337 flow. In both cases, the normal
+path starts in state \texttt{WaitPayment}. This means that Step 1 and Step 2 remain distinct
+in the normal sponsored path: the sponsor creates and funds the exchange first, and the
+buyer later sends the payment.
+
+Keeping this variant is important for two reasons. First, it is the closest implementation
+of the sponsored protocol as inherited from the original codebase. Second, it provides a
+fair baseline against which all simplified modes can be compared. A simplified mode is only
+useful if it is clear which part of the normal sponsored logic it removes.
+
+The normal path also remains the fallback for disputes with external sponsors. When the
+buyer-side and vendor-side dispute sponsors are not both self-sponsored, the optimistic clone
+deploys the normal dispute contract. This preserves the generic Step 9 behavior, including
+the possibility of repeated Step 7--8 executions when the protocol logic requires a new
+sponsor configuration.
+
+\section[No S-deposit and simSOX]{No \(S\)-deposit and simSOX}
+
+The \texttt{no\_S\_deposit} mode is the simplified optimistic mode used in the report under
+the name simSOX. Its goal is precise: remove the initial sponsor deposit from the optimistic
+phase. It should not be confused with a complete redesign of transaction delivery, and it
+should not be described as merely ``funding the EntryPoint differently''. At the protocol
+level, the important point is that there is no optimistic \(S\)-deposit to reimburse.
+
+This distinction matters because the transaction layer and the protocol economics are
+separate. ERC-4337 or a bundler can be used to deliver a transaction, but the
+\texttt{no\_S\_deposit} variant is about the economic state of the SOX contract itself. In
+the specialized clone implementation, \texttt{OptimisticSOXCloneNoSDeposit} enforces this by
+requiring zero value at initialization:
+
+\begin{itemize}
+  \item the factory function \texttt{createNoSDeposit} rejects any initial value;
+  \item the clone starts in \texttt{WaitPayment}, like the normal path;
+  \item the buyer payment required by \texttt{sendPayment} is only the agreed price;
+  \item the sponsor tip recorded after payment is set to zero.
+\end{itemize}
+
+Thus, simSOX is not a claim that no one pays gas. It is the case where the optimistic part of
+the protocol no longer contains an \(S\)-deposit whose purpose is to reimburse external
+sponsoring. This makes it a useful comparison point for honest exchanges, because it removes
+a piece of accounting that is unnecessary when participants pay their own transaction costs
+in the optimistic phase.
+
+The mode is selected before deployment. The frontend and backend expose it as a precontract
+variant, and the factory chooses the corresponding implementation. This is important: the
+contract does not carry both the normal sponsor-deposit logic and the no-deposit logic at
+runtime. The selected clone contains the behavior needed for that mode.
+
+\section[S=B: sponsor is buyer]{\(S=B\): sponsor is buyer}
+
+The \(S=B\) variant is the cleanest precontract-time self-sponsoring case. Since the buyer is
+also the optimistic sponsor, the two first steps of the optimistic protocol can be fused in
+the implementation. Conceptually, Step 1 is the creation and sponsor deposit by \(S\), while
+Step 2 is the buyer payment. If \(S=B\), the same actor is responsible for both actions, so
+there is no need to expose a state where a third-party sponsor has created an exchange but
+the buyer has not yet committed funds.
+
+The specialized contract \texttt{OptimisticSOXCloneSponsorIsBuyer} implements this fusion.
+During initialization, it requires the sponsor to be the buyer and requires enough value to
+cover the buyer payment, the completion tip, and the sponsor fees. It then records the buyer
+deposit immediately and starts the exchange in state \texttt{WaitKey}. Consequently, the
+buyer does not need to call \texttt{sendPayment} as a separate transaction.
+
+This variant addresses the risk identified during the project discussion: if Step 1 and
+Step 2 are separated, a sponsor may deploy and fund a contract that is not used because the
+buyer never pays. In the \(S=B\) case, the implementation avoids this intermediate state.
+The buyer's economic commitment and the creation of the exchange happen together.
+
+The implementation also enforces the role equality on-chain. The factory function
+\texttt{createSponsorIsBuyer} requires \texttt{msg.sender} to be the configured buyer, and
+the clone itself requires the sponsor address to match the buyer address. This avoids
+depending only on frontend selection for a security-relevant role equality.
+
+The \(S=B\) mode is distinct from \texttt{no\_S\_deposit}. In simSOX, the optimistic sponsor
+deposit is removed. In \(S=B\), the sponsor role still exists, but it is played by the buyer
+and its deposit is provided together with the buyer payment. The two modes therefore answer
+different questions and are measured separately.
+
+\section[S=V: sponsor is vendor]{\(S=V\): sponsor is vendor}
+
+The \(S=V\) variant makes the vendor the optimistic sponsor. Like \(S=B\), it is determined
+at precontract time and therefore belongs to the optimistic factory selection. Unlike
+\(S=B\), however, it does not make the Step 1--2 fusion trivial. The buyer is still a
+different party and still has to send the payment after the optimistic contract has been
+created.
+
+The dedicated \(S=V\) optimistic clone implements this case. Its initialization requires the
+sponsor to be the vendor, requires the sponsor-fee deposit, and then starts in state
+\texttt{WaitPayment}. The factory function \texttt{createSponsorIsVendor} also requires the
+caller to be the configured vendor. The effect is therefore narrower than in \(S=B\): it
+removes the external optimistic sponsor role, but it does not remove the buyer payment
+transaction.
+
+This variant was kept because it is a meaningful protocol case and because it was explicitly
+requested in the revised scope. It is also useful analytically: it separates the question
+``what happens if the optimistic sponsor is not external?'' from the stronger question
+``can Step 1 and Step 2 be fused?'' In the current implementation, the answer is yes for
+\(S=B\) and no for \(S=V\).
+
+There is a possible future optimization for \(S\ne B\), discussed later in the report: move
+the loading of the contract or precontract data to Step 2 and require a signature from
+\(S\). Then \(B\) would bring the payment, the precontract data, and \(S\)'s approval in one
+transaction. That idea is not part of the implemented \(S=V\) mode because it changes the
+deployment architecture more deeply and interacts with ERC-4337 validation.
+
+\section[SB=B and SV=V: self-sponsored disputes]{\(S_B=B\) and \(S_V=V\): self-sponsored disputes}
+
+The equalities \(S_B=B\) and \(S_V=V\) belong to a different category. They are not selected
+when the precontract is created. They become relevant only after the buyer indicates that it
+is not satisfied and the protocol enters the path that can lead to a dispute.
+
+The first important case is \(S_B=B\). In the paper's step structure, Step 4 is the buyer
+announcing dissatisfaction, and Step 5 is the buyer-side dispute sponsor registering and
+depositing. If \(S_B=B\), these two actions can be naturally fused: the buyer both expresses
+dissatisfaction and supplies the buyer-side dispute sponsor deposit. The clone base provides
+\texttt{sendBuyerSelfDisputeSponsorFee} for this self-sponsored case.
+
+For an external \(S_B\), the same fusion is not automatically safe. An external sponsor
+should not be able to pretend that the buyer is unhappy. The implementation therefore also
+contains an authorization-based entry point for external buyer-side dispute sponsors. The
+authorization hash binds the buyer's statement to the chain id, the optimistic contract
+address, the buyer, the chosen dispute sponsor, and the commitment. The external \(S_B\)
+must provide a signature from the buyer before the contract accepts the deposit. This
+directly addresses the concern that a third party could otherwise trigger the buyer-unhappy
+path without the buyer's consent.
+
+The second important case is \(S_V=V\). When both \(S_B=B\) and \(S_V=V\) hold, the dispute
+does not need the same sponsor-rotation behavior as the fully sponsored case. The losing
+party is already the relevant economic party. The implementation therefore selects the
+self-sponsored dispute deployer when the buyer dispute sponsor is the buyer and the vendor
+dispute sponsor and signer are the vendor. The resulting dispute account uses the
+self-sponsored Step 9 logic.
+
+The self-sponsored dispute account specializes Step 9. Instead of relaunching or rotating
+the dispute loop, \texttt{handleStep9} moves directly to the appropriate terminal direction:
+\texttt{Cancel} when the vendor loses, and \texttt{Complete} otherwise. This is the source of
+the expected reduction in full-dispute cost: the optimization is not a small local saving in
+one function, but the removal of unnecessary repeated executions of the Step 7--8 loop.
+
+This design also explains why \(S_B=B\) and \(S_V=V\) are not implemented as separate
+precontract factory modes. They are dispute-time facts. The same optimistic exchange may
+later use either a normal dispute contract or a self-sponsored dispute contract depending on
+who actually registers as \(S_B\) and \(S_V\). Treating them as runtime dispute choices keeps
+the optimistic contracts smaller and avoids prematurely committing to a dispute path that
+may never be used.
+
+\section[Hardcoded SHA-256 circuit variant]{Hardcoded \(\mathsf{SHA256}\) circuit variant}
+
+The hardcoded \(\mathsf{SHA256}\) variant targets a different part of the protocol. It is
+not a sponsoring variant. It is a circuit-verification variant for the case where the
+description is exactly \(desc=\mathsf{SHA256}(x)\). In the generic circuit mode, the dispute
+contract must verify that the gate opened in Step 8 belongs to the committed circuit. This
+requires \(h_{\mathit{circuit}}\), the gate bytes, and the Merkle proof usually denoted
+\(\pi_1\).
+
+For \(desc=\mathsf{SHA256}\), the circuit structure is determined by public metadata: the
+plaintext length, the number of ciphertext blocks, the description hash, and the AES-CTR IV.
+The implementation can therefore use a dedicated contract that reconstructs the expected
+gate on-chain. This removes the need for the vendor to provide the circuit gate bytes as an
+authoritative description and removes the need to verify \(\pi_1\) against
+\(h_{\mathit{circuit}}\).
+
+The hardcoded path is fixed at optimistic deployment time through
+\texttt{OptimisticSOXAccountHardcodedSHA256}. The constructor stores the hardcoded metadata:
+the description hash, the plaintext length, and the ciphertext IV. It also checks that the
+number of blocks and the number of gates are consistent with the hardcoded SHA-256 layout.
+The choice is therefore not made by the vendor during Step 8. A generic exchange cannot
+become hardcoded during a dispute.
+
+The dispute side is handled by \texttt{DisputeSOXAccountHardcodedSHA256} and
+\texttt{HardcodedSha256CircuitLib}. In the strict hardcoded tests, the Step 8 call passes
+\texttt{gateBytes = 0x} and an empty \texttt{proof1}. The dispute contract ignores these
+generic circuit-opening inputs and reconstructs the expected gate bytes itself. It then uses
+the same evaluator and accumulator checks needed to verify the values involved in the gate.
+
+This distinction is important for security. The hardcoded contract determines the gate
+structure \(g_i\), including the expected opcode and source indices. The vendor may still
+provide witness values needed to evaluate the gate, because the smart contract does not
+store the entire ciphertext or all intermediate values. These witness values are not trusted
+blindly: they are checked against the relevant commitments and Merkle proofs before the gate
+result is accepted.
+
+The hardcoded optimization is therefore local to the circuit-membership part of Step 8. It
+does not remove the rest of the dispute work. The contract still has to evaluate the
+selected gate, verify accumulator proofs for ciphertext or previous values, and execute the
+normal dispute state machine. This is why later gas tables distinguish between the cost of a
+single Step 8 call and the cost of a complete dispute.
+
+\section{Variants kept, variants discarded, and rationale}
+
+The final implementation keeps the variants that change a meaningful cost component. It
+does not implement every theoretically possible role equality as a separate contract. This
+is a deliberate design decision rather than an omission.
+
+\begin{table}[htbp]
+  \centering
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.25\linewidth}>{\raggedright\arraybackslash}p{0.22\linewidth}>{\raggedright\arraybackslash}X}
+    \toprule
+    Case & Status & Rationale \\
+    \midrule
+    Normal sponsored SOX &
+    Implemented &
+    Required baseline for comparison with the inherited sponsored architecture. \\
+    \texttt{no\_S\_deposit} / simSOX &
+    Implemented &
+    Removes the optimistic sponsor deposit and isolates the cost of the simplified honest
+    path. \\
+    \(S=B\) &
+    Implemented &
+    Gives a concrete and safe Step 1--2 fusion because the buyer and optimistic sponsor are
+    the same actor. \\
+    \(S=V\) &
+    Implemented &
+    Removes the external optimistic sponsor role while keeping the buyer payment as a
+    separate action. \\
+    \(S_B=B\) and \(S_V=V\) &
+    Implemented as dispute-time specialization &
+    Avoids unnecessary Step 9 repetitions when both dispute sponsors are the corresponding
+    parties. \\
+    Hardcoded \(\mathsf{SHA256}\) &
+    Implemented as a dedicated path &
+    Removes \(h_{\mathit{circuit}}\) and \(\pi_1\) from the dedicated SHA-256 Step 8
+    verification path. \\
+    All 12 role-combination cases as separate optimistic contracts &
+    Not implemented separately &
+    Several combinations differ only after Step 4 or only in accounting labels. Encoding all
+    combinations as optimistic contracts would increase code size without a proportional
+    measurement benefit. \\
+    Cases such as \(S_B=V\) or \(S_V=B\) &
+    Documented but not specialized &
+    These edge cases are possible role equalities, but they were not expected to change the
+    main gas evaluation in the retained scenarios. \\
+    Arbitrary hardcoded descriptions &
+    Not implemented &
+    The project only implements the dedicated \(desc=\mathsf{SHA256}\) layout. Other
+    descriptions would need their own circuit-specific verifier. \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Retained and non-retained variant cases.}
+  \label{tab:variant-rationale}
+\end{table}
+
+The resulting architecture has three levels of specialization. First, the frontend and
+backend choose a precontract variant among normal, simSOX, \(S=B\), and \(S=V\). Second, the
+factory deploys the corresponding minimal optimistic clone, so unused optimistic branches
+are not carried into every exchange. Third, if a dispute occurs, the optimistic contract
+selects the normal or self-sponsored dispute deployer based on the actual dispute sponsors.
+The hardcoded SHA-256 path is kept as a dedicated circuit-specialized path because its
+optimization concerns Step 8 rather than the optimistic sponsor logic.
+
+This organization is the foundation for the implementation architecture in the next
+chapter. The important point is that the final design does not try to make a single smart
+contract smarter. It tries to make each deployed contract narrower. In a gas-sensitive
+protocol, that distinction is essential.

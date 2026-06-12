@@ -1,0 +1,92 @@
+\chapter[Additional Reproducibility Notes]{Additional Test Logs and Reproducibility Notes}
+\label{app:reproducibility-notes}
+
+\section{Clean measurement discipline}
+
+The gas measurements in this report were interpreted under the following rules:
+
+\begin{itemize}
+  \item never compare a fixed infrastructure cost with a marginal per-exchange cost;
+  \item never compare a local Step 8 cost with a complete dispute total without saying so;
+  \item restart or reset the Hardhat chain when deployment addresses become stale;
+  \item rebuild native CLIs before running native large-file benchmarks;
+  \item report whether a number comes from the initial, monolithic, or final specialized
+  implementation.
+\end{itemize}
+
+These rules were introduced after early measurements mixed scopes and were difficult to
+explain. They are now part of the experimental methodology.
+
+\section{Canonical benchmark commands}
+
+\begin{verbatim}
+cd src/hardhat
+
+npx hardhat test \
+  test/performance/HanaComparisonCurrent.test.ts
+npx hardhat test \
+  test/performance/SpecializedContractArchitecture.test.ts
+npx hardhat test \
+  test/performance/SpecializedFinalSameScope.test.ts
+\end{verbatim}
+
+For the native hardcoded benchmark:
+
+\begin{verbatim}
+cd src/wasm
+cargo build --release --bin precontract_cli \
+  --bin hardcoded_sha256_dispute_cli
+
+cd ../hardhat
+npx hardhat test \
+  test/performance/NativeHardcodedSHA256FullDispute1GB.test.ts
+\end{verbatim}
+
+For a small smoke test of the same code path:
+
+\begin{verbatim}
+SOX_FULL_DISPUTE_SIZE_BYTES=16384 npx hardhat test \
+  test/performance/NativeHardcodedSHA256FullDispute1GB.test.ts
+\end{verbatim}
+
+\section{Interpreting local benchmark output}
+
+Hardhat gas values come from transaction receipts and are stable for a fixed contract
+version, optimizer configuration, and test path. Wall-clock times are less stable because
+they depend on the host machine, file system, CPU load, and whether the benchmark is run
+inside WSL or directly on Linux.
+
+The 1 GiB benchmark creates a temporary sparse file through truncation. This makes the test
+practical without storing a permanent 1 GiB fixture in the repository. The benchmark still
+executes the precontract CLI and dispute CLI on that file and then performs the on-chain
+dispute path.
+
+\section{Known local-environment issues}
+
+\begin{itemize}
+  \item If \texttt{run-alto.sh} reports that the EntryPoint does not exist, the Hardhat
+  chain was probably restarted after deployment. Redeploy with \texttt{./deploy-all.sh}.
+  \item If a native CLI is missing, rebuild it from \path{src/wasm} with
+  \texttt{cargo build --release --bins}.
+  \item If Hardhat cannot write under \path{src/hardhat/artifacts}, the files may have been
+  created by another user. Restore ownership before recompiling.
+  \item If the web application has stale exchanges, reset \path{src/app/db/sox.sqlite} and
+  replay \path{src/app/db/init.sql}.
+\end{itemize}
+
+\section{Submitted-code boundary}
+
+The repository contains historical code, intermediate monolithic contracts, final
+specialized contracts, scripts, and benchmark files. The report uses the following
+terminology consistently:
+
+\begin{itemize}
+  \item initial implementation: the baseline inherited from the previous project;
+  \item intermediate monolithic implementation: the variant-rich contracts before the final split;
+  \item final specialized implementation: factory, clones, specialized disputes, and the
+  hardcoded strict path.
+\end{itemize}
+
+This boundary is important for grading and future reuse. The project contribution is not
+only the final gas number; it is also the separation of these stages, the implementation of
+the retained variants, and the reproducible measurement framework.

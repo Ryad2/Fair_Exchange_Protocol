@@ -1,0 +1,328 @@
+\chapter{Implementation Architecture}
+\label{chap:architecture}
+
+\section{From monolithic contracts to specialized contracts}
+
+The architectural work of the project followed a useful negative result: adding all variants
+to one contract was not a good gas optimization strategy. The first monolithic variant implementation
+extended the existing optimistic and dispute contracts with additional flags for
+\texttt{no\_S\_deposit}, \(S=B\), \(S=V\), self-sponsored disputes, and the hardcoded
+\(\mathsf{SHA256}\) case. This made functional testing possible quickly, but it also produced
+a monolithic design. The bytecode contained several mutually exclusive branches, so each
+deployment paid for code that would never be executed by the selected mode.
+
+The final architecture therefore moved from a monolithic contract to a split architecture.
+The selected mode is decided before deployment whenever the mode is known at precontract
+time. The contract deployed for one exchange then contains only the logic needed for that
+exchange. Dispute-specific choices are delayed until the dispute sponsor roles are known,
+because \(S_B=B\) and \(S_V=V\) are not precontract-time facts.
+
+The resulting implementation is not a rewrite of the whole application. It preserves the
+existing Rust precontract logic, the Next.js/Electron user interface, the SQLite storage, the
+Hardhat test environment, and the ERC-4337-compatible normal path. The main architectural
+change is the introduction of narrower Solidity components around the existing execution
+flow.
+
+\begin{table}[htbp]
+  \centering
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.30\linewidth}>{\raggedright\arraybackslash}X}
+    \toprule
+    Layer & Responsibility \\
+    \midrule
+    Frontend and backend &
+    Select and persist the precontract variant, validate role-dependent choices, and pass
+    the selected mode to the deployment layer. \\
+    \texttt{SOXFactory} &
+    Deploy minimal optimistic clones for specialized precontract modes when reusable
+    infrastructure is already available. \\
+    Optimistic account implementations &
+    Encode the state machine for the honest path and the transition to dispute, with
+    variant-specific deposit logic. \\
+    Dispute deployers &
+    Select the normal, self-sponsored, or hardcoded dispute account when a dispute is
+    triggered. \\
+    Dispute accounts and verifier libraries &
+    Execute Step 7--9, verify commitments, evaluate gates, and implement hardcoded
+    \(\mathsf{SHA256}\) reconstruction when selected. \\
+    Native Rust CLI tools &
+    Generate precontract artifacts and large-file dispute witnesses outside the browser. \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Main layers of the final implementation architecture.}
+  \label{tab:architecture-layers}
+\end{table}
+
+This split is the key difference between the final implementation and the earlier
+monolithic version. The protocol did not become less expressive; rather, the implementation
+stopped carrying unrelated modes inside the same deployed bytecode.
+
+\section{Frontend and backend mode selection}
+
+The precontract-time variants are exposed to the application through a small TypeScript
+module, \path{src/app/lib/protocol-variants.ts}. It defines four user-facing modes:
+\texttt{normal}, \texttt{no\_S\_deposit}, \texttt{S\_equals\_B}, and
+\texttt{S\_equals\_V}. The labels shown in the interface are deliberately simpler:
+``normal'', ``simSOX (no S-deposit)'', ``S = B'', and ``S = V''.
+
+The vendor selects the mode when creating a precontract in
+\path{src/app/components/user/NewContractModal.tsx}. The selected value is sent to
+\path{/api/precontracts} either as multipart form data in the web mode or as JSON in the
+Electron mode. The backend normalizes the value before inserting it into SQLite. The
+\texttt{contracts} table therefore contains a \texttt{precontract\_variant} column, with
+\texttt{normal} as the default for backward compatibility.
+
+The same value is later used by the sponsor-facing view. In
+\path{src/app/components/sponsor/SponsorContractsListView.tsx}, the interface displays the
+mode and enforces the obvious role constraints before deployment:
+
+\begin{itemize}
+  \item if the mode is \(S=B\), the deployer must be the buyer;
+  \item if the mode is \(S=V\), the deployer must be the vendor;
+  \item otherwise, the sponsor can be selected as in the normal flow.
+\end{itemize}
+
+These frontend checks are usability checks, not the security boundary. The Solidity factory
+and the specialized contracts repeat the relevant role checks on-chain. This duplication is
+intentional. It gives a clear error to the user early, while still ensuring that a malformed
+API request cannot deploy a contract under an invalid role equality.
+
+The hardcoded \(\mathsf{SHA256}\) circuit variant is not exposed as a normal dropdown option
+in the main precontract modal. In the current codebase it is a dedicated deployment and
+benchmark path, enabled by passing \texttt{hardcodedSha256Circuit} metadata to the blockchain
+deployment helper. This keeps the user-facing mode selection focused on the three
+sponsoring simplifications that were requested for the interface: simSOX, \(S=B\), and
+\(S=V\).
+
+\section[Factory and optimistic clones]{SOXFactory and clone-based optimistic contracts}
+
+The contract \path{src/hardhat/contracts/SOXFactory.sol} is the main on-chain component of
+the clone architecture. It stores four immutable implementation addresses, one for each
+optimistic mode: normal, no-deposit, sponsor-is-buyer, and sponsor-is-vendor. For each new
+exchange, the factory creates an EIP-1167-style minimal proxy and calls
+\texttt{initialize} on the clone.
+
+The factory exposes one creation function per precontract mode:
+
+\begin{itemize}
+  \item \texttt{createNormal} for the normal sponsored clone;
+  \item \texttt{createNoSDeposit} for simSOX;
+  \item \texttt{createSponsorIsBuyer} for \(S=B\);
+  \item \texttt{createSponsorIsVendor} for \(S=V\).
+\end{itemize}
+
+The functions are not only dispatchers. They also enforce mode-specific constraints. The
+no-deposit creation function rejects any initial value, the buyer-sponsor creation function
+requires the caller to be the buyer, and the vendor-sponsor creation function requires the
+caller to be the vendor. These checks make the selected mode part of the deployed contract's
+on-chain history.
+
+In the application deployment helper, the factory is used when clone-based deployment is
+enabled, a factory address is present, and the selected mode is a non-hardcoded specialized
+variant. The normal interactive path is kept as a direct account deployment because it
+preserves the existing ERC-4337-compatible normal contract. The clone factory is
+nevertheless available for normal-mode measurements and for comparing direct deployments
+with clone-based deployments.
+
+This distinction is important for gas accounting. The factory and implementation contracts
+are infrastructure costs: they are deployed once and can then be reused. The marginal cost
+of a new clone-based exchange is the cost of creating and initializing the minimal proxy, not
+the cost of deploying the full implementation again. This is why later experimental tables
+separate one-time infrastructure gas from per-exchange gas.
+
+\section{Specialized optimistic escrow contracts}
+
+The optimistic contract family has two forms: direct contracts and clone contracts. They
+share the same high-level state machine, but they are used in different integration contexts.
+
+The direct variants extend a common direct base. They are full contract deployments with
+constructor arguments. They are useful as fallbacks and are used by the hardcoded
+\(\mathsf{SHA256}\) path. The direct normal contract is also the path that keeps the
+ERC-4337-style account functionality inherited from the original application.
+
+The clone variants extend \path{OptimisticSOXAccountCloneBase.sol}. They are initialized
+after creation by the factory. The clone base removes the ERC-4337 account logic and keeps
+only the optimistic escrow behavior needed by the specialized variants. This was a
+deliberate simplification: the variants are measured and demonstrated mainly with direct
+transactions, while the normal path remains available when the existing account-abstraction
+flow is needed.
+
+The four clone implementations encode the deposit differences described in
+Chapter~\ref{chap:variants}. The normal clone requires the sponsor fee and waits for buyer
+payment. The no-deposit clone requires zero value and makes the buyer payment equal to the
+agreed price only. The \(S=B\) clone requires the buyer to be the deployer, records the buyer
+payment during initialization, and starts directly in the key-waiting state. The \(S=V\)
+clone requires the vendor to be the deployer, records the sponsor deposit, and still waits
+for buyer payment.
+
+Both direct and clone bases contain the same dispute-sponsor entry points needed after the
+honest path fails. In particular, they include:
+
+\begin{itemize}
+  \item a self-sponsored buyer dispute deposit path;
+  \item an authorization-based external buyer dispute sponsor path;
+  \item a self-sponsored vendor dispute deposit path;
+  \item a runtime choice between normal and self-sponsored dispute deployment.
+\end{itemize}
+
+The authorization-based buyer path is especially important. It prevents an external
+\(S_B\) from unilaterally claiming that the buyer is unhappy. The signed message includes
+the chain id, the optimistic contract address, the buyer, the proposed buyer-side dispute
+sponsor, and the commitment. This binds the authorization to one exchange and one proposed
+sponsor.
+
+\section{Specialized dispute game contracts}
+
+The dispute architecture is split into deployer libraries and dispute account contracts.
+The deployer libraries are small selectors that instantiate the appropriate dispute account:
+normal, self-sponsored, or hardcoded \(\mathsf{SHA256}\). The optimistic account decides
+which deployer to use when the vendor-side dispute sponsor deposit is made.
+
+The normal dispute account, \path{DisputeSOXAccountNormal.sol}, keeps the generic dispute
+behavior. It implements the challenge-response loop, Step 8 verification, and the normal
+Step 9 behavior. This path is used when the dispute sponsors are external or when the
+self-sponsored specialization is not applicable.
+
+The self-sponsored dispute account,
+\path{DisputeSOXAccountSelfSponsored.sol}, inherits from the normal dispute account and
+overrides only the Step 9 handling. When both \(S_B=B\) and \(S_V=V\), it does not relaunch
+the challenge loop for a new sponsor configuration. Instead, it moves directly toward the
+terminal outcome determined by the losing party. This keeps the implementation small and
+makes the optimization auditable: the rest of the dispute logic is inherited unchanged, and
+the only semantic change is the Step 9 transition.
+
+This inheritance structure was chosen to reduce implementation risk. The project did not
+rewrite the complete dispute verifier for the self-sponsored case. It specialized the part
+that is actually different. This also makes the gas measurements easier to interpret,
+because a saving in the self-sponsored case can be attributed to removing unnecessary
+iterations rather than to a hidden rewrite of the verifier.
+
+\section{Hardcoded SHA-256 dispute contracts}
+
+The hardcoded \(\mathsf{SHA256}\) path is implemented separately from the clone factory. Its
+optimistic contract is \path{OptimisticSOXAccountHardcodedSHA256.sol}. This contract stores
+three immutable pieces of metadata: the description hash, the plaintext length, and the
+ciphertext IV. At deployment time, it verifies that the number of ciphertext blocks and the
+number of circuit gates match the hardcoded \(\mathsf{SHA256}\) layout.
+
+When a dispute is triggered from this contract, it uses the hardcoded SHA-256 dispute
+deployer, which instantiates the corresponding hardcoded dispute account. The dispute
+account overrides the generic Step 8 entry points so that the vendor no longer provides the
+circuit gate bytes as the source of truth and no longer provides the \(\pi_1\) Merkle proof
+for \(h_{\mathit{circuit}}\). In the strict hardcoded tests, the corresponding inputs are
+empty.
+
+The reconstruction logic is isolated in
+\path{HardcodedSha256CircuitLib.sol}. Given the gate number, the number of blocks, the
+description hash, the plaintext length, and the IV, the library computes the expected
+64-byte encoding of the selected gate and checks its hash. It covers the AES-CTR input
+gates, the SHA-256 padding gates, the SHA-256 compression chain, the description constant,
+and the final comparison gate.
+
+The hardcoded contract does not remove all witness data from Step 8. The smart contract
+does not store the whole ciphertext nor every intermediate value. The vendor still provides
+values needed to evaluate the selected gate, but those values are verified against the
+appropriate commitments and accumulator proofs before the gate result is accepted. The
+architectural change is therefore specific and limited: \(g_i\) is reconstructed by the
+contract, while \(v_i\)-style witness values remain externally supplied and authenticated.
+
+This design also explains why hardcoded \(\mathsf{SHA256}\) is implemented as a dedicated
+path instead of a flag inside every dispute contract. The hardcoded path changes the Step 8
+verifier. Carrying both generic and hardcoded verification in the same contract would put
+the project back into the monolithic pattern that the final architecture was meant to avoid.
+
+\section{Native CLI path for large files}
+
+The original application relied heavily on WebAssembly and browser-adjacent execution. That
+is convenient for small demonstrations, but it becomes fragile for very large files. The
+project therefore uses native Rust command-line tools for large-file experiments.
+
+The main precontract tool is \path{src/wasm/src/bin/precontract_cli.rs}. It reads an input
+file, chooses or receives a 16-byte AES key, computes the V2 precontract values, writes the
+ciphertext and circuit bytes to disk, and returns a JSON object containing:
+\texttt{description\_hex}, \texttt{h\_ct\_hex}, \texttt{h\_circuit\_hex},
+\texttt{commitment\_c\_hex}, \texttt{commitment\_o\_hex}, \texttt{num\_blocks},
+\texttt{num\_gates}, output paths, and the key.
+
+The web API uses this CLI in multipart mode. Instead of loading the upload through a
+browser-only computation path, \path{/api/precontracts} streams the uploaded file to a
+temporary file and calls \texttt{precontract\_cli}. In Electron mode, the application can run
+the same native precomputation locally and send the resulting JSON to the backend. In both
+cases, the backend stores the precontract metadata and moves the ciphertext artifact to the
+application upload directory.
+
+The large-file dispute benchmark uses a second native tool,
+\path{src/wasm/src/bin/hardcoded_sha256_dispute_cli.rs}. This tool is intentionally narrower
+than a full generic dispute prover. It validates the number of blocks and gates for the
+hardcoded \(\mathsf{SHA256}\) layout, computes the sequence of \(hpre_i\) values for the
+left-branch benchmark path, and prepares the final left-boundary Step 8 witness. This is the
+tool used to make the 1 GiB hardcoded dispute measurements practical.
+
+The distinction between the two native tools matters. The precontract CLI is part of the
+interactive creation path. The hardcoded dispute CLI is a benchmark and measurement tool for
+a selected dispute scenario. It does not mean that the full browser UI now supports every
+possible 1 GiB generic dispute interaction end-to-end.
+
+\section{Database and artifact management}
+
+The application stores precontract and exchange metadata in SQLite through
+\path{src/app/lib/sqlite.ts}. The schema is defined in \path{src/app/db/init.sql} and
+contains two main tables: \texttt{contracts} and \texttt{disputes}. The project added the
+\texttt{precontract\_variant} column to \texttt{contracts}, with default value
+\texttt{normal}. The runtime initialization code also attempts to add this column to older
+local databases, which keeps existing development databases usable.
+
+The \texttt{contracts} table stores the buyer and vendor addresses, price, tips, timeout,
+number of blocks, number of gates, commitment, opening value, protocol version, algorithm
+suite, acceptance status, sponsor address, deployed optimistic contract address, and session
+key information. The \texttt{disputes} table stores the dispute sponsors and dispute
+contract address for a contract id.
+
+Encrypted files are stored outside the database. In web mode, the backend writes the upload
+to a temporary file, invokes the native precontract CLI, and then copies the produced
+ciphertext to the uploads directory under a deterministic name based on the contract id. In
+Electron mode, the precomputed ciphertext path is sent by the desktop shell and uploaded
+through the Electron bridge. This design avoids storing large ciphertexts directly in
+SQLite.
+
+The backend also returns the key, \(h_{\mathit{circuit}}\), and \(h_{\mathit{ct}}\) to the
+frontend after precontract creation. The current application stores some of these values in
+browser local storage for the demonstration workflow. This is acceptable for the local proof
+of concept, but it is not a production key-management design. The limitation is documented
+explicitly later in the report rather than hidden as an implementation detail.
+
+\section{Integration with the existing application}
+
+A central constraint of the project was to improve the implementation without breaking the
+existing proof-of-concept application. The final architecture therefore integrates the new
+contracts through the existing application lifecycle:
+
+\begin{enumerate}
+  \item the vendor creates a precontract and selects a transaction mode;
+  \item the backend computes or receives the Rust precontract output and stores metadata;
+  \item the buyer accepts the precontract and downloads the ciphertext;
+  \item the sponsor view deploys the optimistic contract using the selected mode;
+  \item the buyer pays if the selected mode still requires a separate payment;
+  \item the vendor releases the key and the exchange completes optimistically, or the parties
+  move to the dispute path.
+\end{enumerate}
+
+The deployment helper is the bridge between the application and the Solidity architecture.
+It reads deployed infrastructure addresses from the generated deployment JSON file, chooses
+the factory path when applicable, or falls back to direct deployment when the selected mode
+requires it. It also checks for unlinked library placeholders before deploying a direct
+contract, which prevents a class of confusing runtime failures where bytecode artifacts were
+not regenerated after a contract change.
+
+The normal path remains compatible with the original ERC-4337 and EntryPoint demonstration. The
+specialized clone variants do not claim full account-abstraction support; their
+\texttt{supportsERC4337} function returns false through the clone base. This separation is
+intentional. It lets the project measure the gas benefit of narrower contracts without
+pretending that every optimized variant has the same transaction-sponsoring integration as
+the inherited normal account.
+
+The final integrated architecture is therefore hybrid but controlled. The user-facing
+application can demonstrate normal sponsored exchanges and the main precontract variants.
+The benchmark suite can additionally exercise clone-based normal measurements, hardcoded
+\(\mathsf{SHA256}\) disputes, and large-file native paths. The report keeps these scopes
+separate in the experimental chapters so that an application demo, a gas benchmark, and a
+large-file native benchmark are not accidentally treated as the same result.

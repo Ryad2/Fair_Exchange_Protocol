@@ -1,0 +1,384 @@
+\chapter{Background and Protocol Foundations}
+\label{chap:background}
+
+This chapter gives the protocol background needed to understand the implementation work
+presented later in the report. It does not introduce new measurements and it does not claim a
+new proof of security. Its purpose is to fix the vocabulary, the protocol objects, the role
+of the sponsors, and the distinction between the optimistic execution path and the dispute
+execution path. This is important because most of the engineering choices made in this
+project are only meaningful once the scope of each protocol step is unambiguous.
+
+\section{Fair exchange and optimistic protocols}
+
+A fair exchange protocol allows two parties to exchange valuable objects without trusting
+each other. In the setting studied in this project, the vendor \(V\) owns a digital item
+\(x\), and the buyer \(B\) is willing to pay a price \(y\) if the item satisfies a public
+description predicate. Informally, the desired outcome is:
+\[
+  B \text{ obtains a valid item } x
+  \quad\Longleftrightarrow\quad
+  V \text{ obtains the payment } y.
+\]
+If the exchange cannot complete, neither side should obtain a strictly better position by
+deviating from the protocol. A dishonest vendor should not be able to get paid for an invalid
+or unavailable item, and a dishonest buyer should not be able to obtain the item while
+recovering the payment.
+
+Perfect two-party fair exchange is known to be impossible in the general asynchronous setting
+without an additional enforcement mechanism. Blockchain-based protocols use the smart
+contract as such a mechanism. The contract is not a trusted party in the traditional sense:
+its code is public, deterministic, and executed by the blockchain. It can nevertheless hold
+funds, enforce deadlines, verify cryptographic evidence, and redistribute deposits when one
+party refuses to continue.
+
+The difficulty is cost. A naive smart-contract solution would put the item, the verification
+logic, or a large part of the computation on-chain. This is not viable for large files. The
+gas cost of storing data, deploying bytecode, and executing cryptographic computations grows
+quickly and can dominate the value of the exchange. The protocol therefore follows an
+\emph{optimistic} design: the common case should be cheap, and expensive verification should
+only happen if a dispute is raised.
+
+An optimistic fair exchange protocol separates two paths:
+
+\begin{itemize}
+  \item the \emph{optimistic path}, where both parties behave as expected and the exchange
+  completes after a small number of transactions;
+  \item the \emph{dispute path}, where one party claims that the exchange is invalid and the
+  contract adjudicates the claim using a compact proof.
+\end{itemize}
+
+This separation is central to \sox{}. The protocol accepts that a dispute may be expensive,
+but it tries to make disputes rare, logarithmic in the size of the computation trace, and
+economically financed by sponsors and deposits.
+
+\section{Overview of the SOX protocol}
+
+The Sponsored Fair Exchange protocol, abbreviated \sox{}, is described in
+\cite{sox2026}. The implementation inherited at the beginning of this project follows the
+same high-level architecture and was documented in the previous implementation report
+\cite{hana2025}.
+
+The digital item is not sent directly to the buyer in clear. Instead, the vendor encrypts
+the item and publishes an encrypted object \(ct\). The buyer can download \(ct\), but cannot
+recover \(x\) until the vendor reveals the decryption key. Before the payment is released,
+the vendor also commits to the data and to the computation that should prove that the
+plaintext satisfies the expected description.
+
+The protocol is built around the following public and authenticated objects:
+
+\begin{itemize}
+  \item the ciphertext \(ct\), which is the encrypted representation of the item;
+  \item the description \(\mathsf{desc}\), for example \(\mathsf{SHA256}\) in the main
+  specialized case studied in this project;
+  \item the expected digest or description output \(d\);
+  \item a circuit \(C\) that evaluates whether decrypting \(ct\) gives an item satisfying
+  \(\mathsf{desc}(x)=d\);
+  \item cryptographic commitments to \(ct\), to the circuit, and to intermediate values used
+  during dispute resolution.
+\end{itemize}
+
+The smart contract does not store the whole file and does not execute the full circuit in the
+optimistic case. It only stores short commitments and enough economic state to decide who
+should receive the funds. If the buyer accepts the decrypted item, the contract releases the
+payment to the vendor. If the buyer complains, the dispute mechanism narrows the disagreement
+to a single circuit position and verifies a local computation step on-chain.
+
+The important architectural idea is that the contract only needs to verify a small local
+claim after a logarithmic search. The expensive work of encrypting, constructing the circuit,
+computing intermediate values, and preparing Merkle proofs remains off-chain. The on-chain
+part checks enough authenticated data to make lying economically and cryptographically
+detectable.
+
+\section{Roles, sponsors, deposits, and incentives}
+
+The protocol distinguishes between the parties who exchange the item and the parties who pay
+gas or finance parts of the protocol. In the most general form, there are five roles:
+
+\begin{table}[htbp]
+  \centering
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.16\linewidth}>{\raggedright\arraybackslash}X}
+    \toprule
+    Role & Function in the protocol \\
+    \midrule
+    \(V\) &
+    Vendor. Owns the item \(x\), prepares the encrypted item and the precontract data,
+    reveals the decryption key, and defends the correctness of the exchange during a
+    dispute. \\
+    \(B\) &
+    Buyer. Accepts the precontract, pays the price, decrypts the ciphertext after receiving
+    the key, and raises a complaint if the decrypted item does not satisfy the description. \\
+    \(S\) &
+    Optimistic sponsor. In the sponsored version, this role finances or deposits funds for
+    the optimistic part of the protocol. \\
+    \(S_B\) &
+    Buyer-side dispute sponsor. This role finances the buyer side of the dispute when the
+    buyer claims that the exchange is invalid. \\
+    \(S_V\) &
+    Vendor-side dispute sponsor. This role finances the vendor side of the dispute when the
+    vendor defends the validity of the exchange. \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Protocol roles used by \sox{}.}
+  \label{tab:background-roles}
+\end{table}
+
+The motivation for introducing sponsors is practical. A buyer or vendor may not want to hold
+gas funds, or may not want to expose themselves to the full execution cost of a dispute.
+Sponsors can cover these costs in exchange for deposits, tips, or reimbursement rules
+encoded in the contract. The exact economic values are implementation parameters, but the
+logic is protocol-driven: if a party causes an unnecessary or losing dispute, the deposits
+should compensate the party who paid for the successful execution.
+
+Several roles may coincide. For example, \(S=B\) means that the buyer is also the optimistic
+sponsor, \(S=V\) means that the vendor is also the optimistic sponsor, \(S_B=B\) means that
+the buyer sponsors its own side of the dispute, and \(S_V=V\) means that the vendor sponsors
+its own side. These equalities are not cosmetic. They can remove transactions, deposits, or
+repeated dispute iterations. A large part of this project studies which coincidences have a
+real gas impact and which ones are mostly semantic.
+
+One variant is especially important: the no \(S\)-deposit mode, also called \simsox{} in the
+measurements. In that mode there is no initial sponsor deposit by \(S\) in the optimistic
+part. The parties pay for their own optimistic transactions, so the contract no longer needs
+to carry reimbursement logic for an external optimistic sponsor. This simplifies the
+optimistic contract and is one of the main reasons for the lower marginal cost measured in
+the final implementation.
+
+\section{Optimistic path of the protocol}
+
+The optimistic path is the path followed when the vendor provides a valid item and the buyer
+accepts it. In the inherited implementation and in the specialized variants developed during
+this project, the path can be summarized as follows.
+
+\begin{enumerate}
+  \item \textbf{Precontract generation.} The vendor prepares the encrypted file, the public
+  description data, and the commitments required by the protocol. This computation is
+  off-chain and may be expensive for large files.
+
+  \item \textbf{Contract creation or initialization.} The optimistic contract for the
+  exchange is deployed or created through the selected deployment mechanism. In the initial
+  implementation this was essentially an account-per-exchange design. In the final
+  specialized implementation, several modes use a factory and smaller dedicated contracts.
+
+  \item \textbf{Buyer payment.} The buyer sends the payment to the optimistic contract. The
+  contract escrows the payment instead of transferring it immediately to the vendor.
+
+  \item \textbf{Key release.} The vendor reveals the symmetric key. The buyer can now decrypt
+  the ciphertext and check the item locally.
+
+  \item \textbf{Completion or complaint.} If the buyer is satisfied, the buyer completes the
+  exchange and the contract releases the payment to the vendor. If the buyer is not
+  satisfied, the protocol leaves the optimistic path and enters the dispute path.
+\end{enumerate}
+
+In the Solidity implementation, the optimistic contract states reflect this structure. The
+contract waits for the buyer payment, then waits for the vendor key, then waits for either
+buyer completion or dispute preparation. The exact state names vary slightly across the
+initial, monolithic, and specialized contracts, but the core sequence remains:
+\[
+  \texttt{WaitPayment}
+  \rightarrow
+  \texttt{WaitKey}
+  \rightarrow
+  \texttt{WaitSB}
+  \rightarrow
+  \texttt{WaitSV} \text{ or } \texttt{End}.
+\]
+The state \texttt{End} corresponds to a completed or otherwise finalized exchange.
+
+The gas objective for this path is strict: the optimistic path is the common case, so it must
+be as cheap as possible. Any branch that only matters in rare dispute scenarios should not be
+paid by every honest exchange if it can be moved to a specialized contract or delayed until a
+dispute actually occurs.
+
+\section{Dispute path of the protocol}
+
+A dispute starts when the buyer claims that the decrypted item is invalid. The purpose of the
+dispute is not to recompute the whole circuit on-chain. Instead, the parties conduct an
+interactive search over the computation trace until the disagreement is localized. Then the
+contract verifies one local computation step with Merkle proofs and the relevant gate
+evaluation.
+
+At a high level, the dispute mechanism has three phases.
+
+\paragraph{Dispute initialization.}
+The buyer announces dissatisfaction and the dispute infrastructure is initialized. In the
+implementation, the operation usually called \texttt{triggerDispute} corresponds to the
+paper's Step 6. It is important to note that in the measured implementation this action can
+include deployment or creation of the dispute contract. Therefore, its gas cost is not merely
+the cost of changing an optimistic state variable.
+
+\paragraph{Binary search over the computation trace.}
+The buyer and the vendor narrow the interval in which they disagree. The implementation uses
+\texttt{respondChallenge} for the buyer response and \texttt{giveOpinion} for the vendor's
+opinion. These correspond respectively to Step 7b and Step 7c in the protocol mapping used
+throughout this report. The number of rounds is logarithmic in the number of gates. For
+example, if the circuit has \(N\) gates, the search requires roughly \(\lceil \log_2 N\rceil\)
+rounds before it reaches a single local position.
+
+\paragraph{Local verification and finalization.}
+Once the relevant position is identified, the vendor submits the local data required to
+verify one gate or one boundary condition. In the implementation this is the
+\texttt{submitCommitment} family of calls, corresponding to Step 8. The contract checks
+membership proofs against the commitments, evaluates the local gate, and then finalizes or
+continues according to the protocol logic. The final transition is referred to as
+\texttt{finalize} in the benchmarks and corresponds to Step 9.
+
+\begin{table}[htbp]
+  \centering
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.34\linewidth}>{\raggedright\arraybackslash}p{0.13\linewidth}>{\raggedright\arraybackslash}X}
+    \toprule
+    Implementation name & Paper step & Purpose \\
+    \midrule
+    \texttt{triggerDispute} &
+    Step 6 &
+    Leaves the optimistic path and initializes the dispute game. In the measured contracts,
+    this may include dispute deployment. \\
+    \texttt{respondChallenge} &
+    Step 7b &
+    Buyer response during the binary search over the computation trace. \\
+    \texttt{giveOpinion} &
+    Step 7c &
+    Vendor opinion on the buyer response; updates the search interval. \\
+    \texttt{submitCommitment}\newline
+    \texttt{submitCommitmentLeft}\newline
+    \texttt{submitCommitmentRight} &
+    Step 8 &
+    Local verification of a circuit gate, boundary value, or final comparison using
+    authenticated data. \\
+    \texttt{finalize} &
+    Step 9 &
+    Ends the current dispute execution or triggers the next protocol consequence according
+    to the sponsor configuration. \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Mapping between implementation terminology and protocol steps.}
+  \label{tab:background-step-mapping}
+\end{table}
+
+This mapping is used later in the experimental chapter. Without it, gas tables are easy to
+misread. For example, a line labelled ``dispute cost'' may include only Step 8, the whole
+post-trigger dispute, or also the deployment cost of the dispute contract. This project
+therefore reports these scopes separately.
+
+\section[Circuit commitments: hct, hcircuit, and hpre]{Circuit commitments: \(h_{ct}\), \(h_{circuit}\), and \(h_{pre}\)}
+
+The dispute mechanism relies on commitments that allow the contract to verify small pieces of
+a large off-chain computation. The implementation uses Merkle-style commitments over
+fixed-size objects. The precise encoding is discussed later in the report because it also
+raises security and ambiguity questions, but the conceptual role of each commitment is as
+follows.
+
+\begin{table}[htbp]
+  \centering
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.18\linewidth}>{\raggedright\arraybackslash}X}
+    \toprule
+    Commitment & Role in the protocol \\
+    \midrule
+    \(h_{ct}\) &
+    Commitment to the ciphertext blocks. During Step 8, a party can reveal only the block
+    needed for a local gate evaluation, together with a membership proof. \\
+    \(h_{circuit}\) &
+    Commitment to the circuit description. In the generic mode, the contract does not know
+    the whole circuit, so the vendor must authenticate the gate being evaluated. \\
+    \(h_{pre}\) &
+    Commitment or authenticated value associated with intermediate computation values used
+    during the dispute search. It lets the parties argue about a particular prefix or local
+    position without publishing the full trace on-chain. \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Commitments used to keep the dispute verification local.}
+  \label{tab:background-commitments}
+\end{table}
+
+The circuit used by the inherited implementation is encoded as a sequence of fixed-size
+64-byte gates. A gate may represent, for example, an AES-CTR decryption block, a SHA-256
+compression step, a constant, an XOR operation, or a comparison. The contract can evaluate a
+single gate if it receives the gate encoding, the necessary input values, and proofs that
+those inputs are consistent with the committed ciphertext or intermediate trace.
+
+The role of \(h_{circuit}\) is especially important for understanding the hardcoded
+\(\mathsf{SHA256}\) optimization. In the generic mode, the contract must be convinced that
+the gate submitted in Step 8 is really the gate committed to by the precontract. This is why
+the generic Step 8 includes a proof for the circuit commitment, denoted \(\pi_1\) in the
+project discussions. In the hardcoded \(\mathsf{SHA256}\) mode, the contract can reconstruct
+the expected gate from public parameters such as the file length, the description hash, and
+the gate index. In that specialized case, the proof \(\pi_1\) is no longer needed for the
+same purpose because the circuit structure is no longer supplied by the vendor.
+
+This optimization does not remove all Step 8 costs. The contract still has to verify the
+relevant ciphertext or intermediate-value proofs and still has to evaluate the local gate.
+It only removes the generic circuit-authentication part of Step 8. This distinction explains
+why the local hardcoded gain can be visible on the Step 8 subcomponent while being diluted in
+the total cost of a complete dispute.
+
+\section{ERC-4337 and transaction sponsorship}
+
+The implementation also contains a transaction-sponsorship layer inspired by ERC-4337
+account abstraction. Instead of requiring each user to send every transaction directly from a
+funded externally owned account, the application can package calls as user operations and
+send them through a bundler and an EntryPoint contract.
+
+This layer is important for usability because it makes it possible to demonstrate sponsored
+execution: a participant can trigger protocol actions without manually managing gas in the
+same way as a regular Ethereum transaction. It is also important experimentally because it
+introduces infrastructure that is not part of the mathematical core of the protocol. A
+bundler, an EntryPoint, and local deployment scripts can affect latency, failure modes, and
+the way gas is paid.
+
+For this reason, the report distinguishes two notions of sponsorship:
+
+\begin{itemize}
+  \item \emph{protocol sponsorship}, which is the role of \(S\), \(S_B\), and \(S_V\) in the
+  \sox{} protocol and determines deposits, reimbursements, and dispute incentives;
+  \item \emph{transaction sponsorship}, which is the implementation mechanism that submits
+  calls through an account-abstraction stack.
+\end{itemize}
+
+These notions are related but not identical. The no \(S\)-deposit mode simplifies protocol
+sponsorship in the optimistic phase. It does not automatically remove every piece of
+transaction infrastructure from the application. Conversely, an ERC-4337 user operation can
+be used to submit a call whose economic meaning is still governed by the protocol roles and
+deposits. Keeping this distinction explicit was necessary to avoid confusing gas paid to
+execute Ethereum transactions with the protocol deposits used to compensate sponsors.
+
+\section{Security assumptions and fairness goals}
+
+The security goal of \sox{} is best understood operationally. If the vendor behaves honestly,
+publishes a valid encrypted item, and reveals the correct key, then the vendor should receive
+the payment unless the buyer can provide valid evidence of a problem. If the buyer behaves
+honestly and the decrypted item is invalid, unavailable, or inconsistent with the
+precontract, then the buyer should be able to prevent the vendor from keeping the payment by
+following the dispute procedure. Sponsors should be reimbursed or penalized according to the
+rules encoded in the contract.
+
+The implementation relies on the following assumptions.
+
+\begin{itemize}
+  \item The blockchain executes the deployed smart contracts deterministically and makes their
+  state publicly available.
+  \item Deadlines are long enough for honest parties or their sponsors to submit the required
+  transactions.
+  \item The hash functions used for commitments and Merkle proofs are collision resistant for
+  the encoded objects being committed.
+  \item The encryption scheme keeps \(x\) confidential before the key is revealed.
+  \item The off-chain computation used to produce ciphertexts, circuits, intermediate values,
+  and proofs is consistent with the on-chain verifier.
+  \item The data needed for a dispute, especially ciphertext blocks and proof artifacts,
+  remains available to the party that must use it.
+  \item The transaction-sponsorship infrastructure, when used, is live enough not to censor
+  honest protocol actions indefinitely.
+\end{itemize}
+
+These assumptions also show the limits of the current prototype. The smart contract can
+check authenticated local claims, but it cannot force an unavailable backend to serve data,
+cannot make a bundler include a transaction, and cannot compensate for ambiguous low-level
+encodings if such encodings allow two interpretations of the same byte string. The latter
+point became important during the project when reviewing the inherited gate encoding and
+Merkle construction. The specialized gas optimizations developed in this project do not
+depend on creating new encodings, but a production-grade version should make those encodings
+canonical and domain-separated.
+
+The rest of the report builds on these foundations. Chapter~3 describes the inherited
+implementation and its execution path. Later chapters then explain how the protocol variants
+were isolated, how the final specialized contracts were implemented, and how the gas and
+off-chain timings were measured.

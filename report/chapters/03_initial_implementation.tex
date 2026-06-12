@@ -1,0 +1,343 @@
+\chapter{Initial Implementation Analysis}
+\label{chap:initial-implementation}
+
+This chapter analyzes the implementation that was inherited at the beginning of the project.
+The objective is not yet to discuss the optimized variants introduced later, but to explain
+what the starting system already did, how its components interacted, and which practical
+limitations motivated the rest of the work. This distinction matters because the current
+repository now contains both inherited components and new specialized contracts. Unless
+explicitly stated otherwise, this chapter refers to the initial execution path centered on
+the original optimistic account, the original dispute account, the Rust/WebAssembly
+precontract pipeline, the Next.js backend, the local SQLite database, and the Alto/EntryPoint
+transaction path.
+
+\section{Repository structure and technology stack}
+
+The initial codebase was not a single smart contract repository. It was a full proof of
+concept combining off-chain computation, on-chain adjudication, a local web application, and
+transaction-sponsorship infrastructure. The main components are summarized in
+Table~\ref{tab:initial-repo-components}.
+
+\begin{table}[htbp]
+  \centering
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.28\linewidth}>{\raggedright\arraybackslash}X}
+    \toprule
+    Component & Role in the initial implementation \\
+    \midrule
+    \path{src/wasm} &
+    Rust crate used for cryptographic preprocessing, circuit construction, ciphertext
+    generation, commitments, and native command line tools. It also produces the
+    WebAssembly bundle used by the application. \\
+    \path{src/hardhat} &
+    Hardhat workspace containing Solidity contracts, deployment scripts, generated
+    artifacts, and tests. The initial path uses an optimistic account and a dispute account,
+    plus libraries for accumulators, commitments, AES, SHA-256, and circuit evaluation. \\
+    \path{src/app} &
+    Next.js application containing the frontend, API routes, SQLite database access,
+    blockchain helper code, and local file storage endpoints. \\
+    \path{bundler-alto} &
+    Local Alto bundler used to submit UserOperations to the local chain through an
+    EntryPoint-compatible account-abstraction path. \\
+    \path{desktop} &
+    Optional Electron shell around the Next.js application. It is useful for local
+    demonstrations and for executing native preprocessing outside the browser. \\
+    Root scripts &
+    Shell scripts such as \path{install.sh}, \path{deploy-all.sh}, and
+    \path{run-alto.sh} orchestrate installation, contract deployment, and bundler startup. \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Main components of the inherited implementation.}
+  \label{tab:initial-repo-components}
+\end{table}
+
+The local development stack is based on a Hardhat chain, Solidity contracts compiled through
+Hardhat, a Next.js server running on \path{localhost:3000}, a bundler RPC endpoint running on
+\path{localhost:4337/rpc}, and a SQLite database stored under \path{src/app/db}. This setup
+is appropriate for a research prototype because it makes the complete execution path visible
+and reproducible. It is not, however, equivalent to a production deployment: identities are
+local test accounts, the backend is centralized, and the bundler is a local development
+service.
+
+The contract compiler configuration also reflects this research-prototype status. The
+Hardhat configuration enables optimization and compilation through the Solidity intermediate
+representation, and local networks are configured with unlimited contract size. This was
+necessary because the original dispute contracts and deployer libraries were large. It also
+means that local deployment success alone cannot be interpreted as mainnet deployability.
+
+\section{Rust and WebAssembly off-chain pipeline}
+
+The most important off-chain component is the Rust crate in \path{src/wasm}. It implements
+the preprocessing required before an exchange can be proposed. The native binary
+\path{precontract_cli} takes an input file and an optional 16-byte AES key. If no key is
+given, it samples a random one. It then computes the precontract material used by the rest of
+the system.
+
+The output of this command line tool contains, in particular:
+
+\begin{itemize}
+  \item the description output encoded as hexadecimal data;
+  \item the ciphertext commitment \(h_{ct}\);
+  \item the circuit commitment \(h_{circuit}\);
+  \item the commitment value \(c\) and opening value \(o\);
+  \item the number of ciphertext blocks and the number of circuit gates;
+  \item paths to the generated ciphertext and circuit files;
+  \item the AES key, returned so that the vendor can later reveal it on-chain.
+\end{itemize}
+
+The same crate contains the circuit construction and evaluation code. The implementation uses
+a compact V2 circuit representation based on fixed 64-byte gates. The relevant operations
+include AES-CTR decryption gates, SHA-256 compression gates, constants, XOR operations, and a
+final comparison gate. This representation is central to the dispute mechanism because it
+lets the smart contract evaluate a single local gate once the corresponding gate bytes and
+input values are authenticated.
+
+The Rust code is exposed in two ways. The WebAssembly bundle is used by the web application
+for interactive use, while native command line tools are used by the backend and by
+performance experiments. This dual execution path was already important in the inherited
+system. The browser/WebAssembly path is convenient for demonstrations and moderate files,
+but native execution is more appropriate for large files because it avoids browser memory
+and UI constraints.
+
+The inherited proof-generation API was only partial. The route
+\path{src/app/api/proofs/compute/route.ts} calls the native \path{compute_proofs_cli}
+binary, but the exposed path supports only one dispute state in the current application
+interface: the state corresponding to \texttt{WaitVendorDataRight}. This was sufficient for
+some local tests and demonstrations, but it did not provide a complete API for all possible
+Step 8 cases. This limitation is one reason why later measurements use dedicated test
+scripts and native benchmark binaries rather than relying exclusively on the web API.
+
+\section{Frontend, backend, database, and file storage}
+
+The user-facing application is implemented with Next.js and a small set of role-oriented
+components. The user side contains views for creating contracts, accepting precontracts, and
+following ongoing contracts. The sponsor side contains views for contracts waiting for
+sponsorship and for dispute sponsorship. The application also has blockchain helper modules
+for optimistic contracts, dispute contracts, UserOperations, deployment configuration, and
+contract artifacts.
+
+The backend stores protocol metadata in SQLite. The main table, \texttt{contracts}, stores
+the precontract data needed by the application: item description, commitment opening,
+buyer and vendor addresses, price, number of blocks, number of gates, commitment,
+completion and dispute tips, protocol version, timeout delay, algorithm suite, acceptance
+status, sponsor address, deployed optimistic contract address, and session-key information.
+A second table, \texttt{disputes}, links a contract identifier to buyer-side and vendor-side
+dispute sponsors and to the deployed dispute contract address.
+
+The encrypted file itself is stored off-chain under the application upload directory. During
+precontract creation, the backend can receive a multipart upload, call the native
+\path{precontract_cli}, copy the generated ciphertext to \path{src/app/uploads}, and insert
+the corresponding metadata into SQLite. Alternatively, in Electron mode, the frontend can
+send precomputed values produced locally.
+
+This design is practical for a proof of concept because it makes the whole system easy to
+run on one machine. Cryptographically, the backend is not trusted to decide the fairness of
+the exchange: the smart contract only relies on commitments and proofs. Practically, however,
+the backend remains an availability and orchestration dependency. If the ciphertext or proof
+artifacts are not available when needed, the on-chain protocol cannot reconstruct them by
+itself. This is not a contradiction of the protocol, but it is an important implementation
+assumption.
+
+The initial application also uses predefined local accounts. Public/private key pairs are
+hard-coded for the local Hardhat chain, and the UI behaves like a laboratory multi-user
+interface rather than a wallet-authenticated application. This makes testing much faster, but
+it must not be confused with a real wallet integration.
+
+\section{Optimistic smart contract architecture}
+
+The initial optimistic phase is implemented by an account-style contract. The central
+contract in the inherited execution path is \path{OptimisticSOXAccount.sol}. It combines
+three responsibilities that are conceptually distinct:
+
+\begin{itemize}
+  \item it stores the exchange parameters and optimistic state;
+  \item it escrows payments, tips, and sponsor funds;
+  \item it also behaves as an account-abstraction compatible account for sponsored calls.
+\end{itemize}
+
+The optimistic state machine contains the states
+\[
+  \texttt{WaitPayment},\quad
+  \texttt{WaitKey},\quad
+  \texttt{WaitSB},\quad
+  \texttt{WaitSV},\quad
+  \texttt{InDispute},\quad
+  \texttt{End}.
+\]
+The normal execution begins in \texttt{WaitPayment}. The buyer calls
+\texttt{sendPayment}, after which the contract waits for the vendor to reveal the AES key
+with \texttt{sendKey}. Once the key is available, the buyer can either complete the exchange
+with \texttt{completeTransaction} or move toward a dispute by registering the buyer-side
+dispute sponsorship. The vendor-side dispute sponsorship then creates or activates the
+dispute contract and moves the optimistic contract into \texttt{InDispute}.
+
+The constructor of the optimistic account receives the EntryPoint address, vendor and buyer
+addresses, price, tips, timeout increment, commitment, number of ciphertext blocks, number of
+gates, and vendor signer. The inherited design deploys a new optimistic account for each
+exchange. This is simple and modular: each exchange has its own state, its own balance, and
+its own account-abstraction context. The cost is that deployment becomes part of the marginal
+cost of every exchange.
+
+The contract also implements timeout logic. If the expected party does not act before the
+deadline, \texttt{cancelTransaction} redistributes funds according to the current state. This
+is important for liveness: an honest party should not be blocked forever by a counterparty
+who stops responding.
+
+\section{Dispute smart contract architecture}
+
+The dispute phase is implemented by a separate dispute account. In the inherited path, the
+dispute account is deployed when the optimistic contract reaches the dispute stage. The main
+contract is \path{DisputeSOXAccount.sol}, supported by several verifier and evaluator
+libraries.
+
+The dispute contract keeps the state of the binary search. Its states cover buyer
+challenges, vendor opinions, vendor data submissions, completion, cancellation, and final
+termination. In the Solidity implementation these states are named
+\texttt{ChallengeBuyer}, \texttt{WaitVendorOpinion}, \texttt{WaitVendorData},
+\texttt{WaitVendorDataLeft}, \texttt{WaitVendorDataRight}, \texttt{Complete},
+\texttt{Cancel}, and \texttt{End}. The buyer submits a response with
+\texttt{respondChallenge}. The vendor answers with \texttt{giveOpinion}, which updates the
+search interval. When the search reaches a local position or a boundary case, the vendor
+submits authenticated local data through one of the \texttt{submitCommitment} calls.
+
+The generic Step 8 verification is expensive because it does several things at once. It
+opens the commitment to recover \(h_{circuit}\) and \(h_{ct}\), checks Merkle-style proofs
+for the relevant circuit gate and values, evaluates the local V2 gate, and checks the
+consistency of the resulting accumulator value. The contract therefore depends on helper
+contracts and libraries for accumulator verification, commitment opening, V2 circuit
+evaluation, AES-CTR evaluation, SHA-256 evaluation, and simple operations.
+
+This architecture follows the intended optimistic principle: the whole file and the whole
+circuit are never evaluated on-chain in the honest case. Nevertheless, once a dispute
+starts, the deployment and local verification costs are substantial. The initial
+implementation also treats the circuit generically, so the contract must be given the
+64-byte gate encoding and the proof that this gate belongs to \(h_{circuit}\). This generic
+design is flexible, but it is not optimal when the description is known to be
+\(\mathsf{SHA256}\) and the circuit structure is determined by the input length.
+
+\section{ERC-4337, Alto bundler, and EntryPoint integration}
+
+The inherited implementation does not only implement protocol sponsorship at the economic
+level. It also integrates a transaction-sponsorship path inspired by ERC-4337. The local
+stack deploys or configures an EntryPoint-compatible contract and starts an Alto bundler. The
+frontend builds UserOperations, sends them to the bundler RPC endpoint, and waits for the
+corresponding UserOperation receipt.
+
+Both the optimistic account and the dispute account expose account-style functionality:
+signature validation, nonces, execution helpers, and EntryPoint deposit management. This
+allows actions such as payment, key release, challenge response, and dispute evidence
+submission to be executed through the account-abstraction path. In the local prototype, this
+is useful because it demonstrates how a participant can interact with the protocol without
+manually sending every transaction as a regular externally owned account transaction.
+
+This integration also introduces additional assumptions. The bundler must be running, the
+EntryPoint address must match the deployed configuration, and the UserOperation must be
+accepted and included. From the point of view of protocol analysis, the bundler is not part
+of the original fairness proof. It is an implementation layer that affects how gas is paid
+and how liveness is achieved in practice. This is why later chapters separate protocol
+variants from transaction-sponsorship infrastructure.
+
+\section{Initial end-to-end execution flow}
+
+The initial end-to-end flow validated during the first phase of the project is shown in
+Table~\ref{tab:initial-e2e-flow}. It starts before any smart contract call, with the vendor
+creating the precontract material, and ends either in optimistic completion or in a dispute
+contract.
+
+\begin{table}[htbp]
+  \centering
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.13\linewidth}>{\raggedright\arraybackslash}p{0.25\linewidth}>{\raggedright\arraybackslash}X}
+    \toprule
+    Order & Location & Action \\
+    \midrule
+    1 &
+    Rust / backend &
+    The vendor uploads or selects a file. The preprocessing pipeline encrypts it, builds the
+    circuit, computes \(h_{ct}\), \(h_{circuit}\), and the commitment, and stores the
+    generated artifacts. \\
+    2 &
+    SQLite / uploads &
+    The backend records the precontract metadata and stores the encrypted file off-chain. The
+    buyer can see pending precontracts addressed to its public key. \\
+    3 &
+    Frontend &
+    The buyer accepts the precontract. In the initial application this is a database-level
+    acceptance action before the on-chain optimistic account is deployed or sponsored. \\
+    4 &
+    Solidity / Hardhat &
+    The optimistic account is deployed with the precontract parameters and sponsor-related
+    funds. \\
+    5 &
+    Optimistic account &
+    The buyer pays into the contract, then the vendor sends the AES key. If the buyer accepts
+    the decrypted item, the exchange completes. \\
+    6 &
+    Dispute path &
+    If the buyer complains, buyer-side and vendor-side dispute sponsorship are registered and
+    a dispute account is deployed. The dispute then proceeds through challenge rounds and
+    Step 8 verification. \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Initial end-to-end execution flow observed in the inherited implementation.}
+  \label{tab:initial-e2e-flow}
+\end{table}
+
+This flow was essential to reconstruct before changing the protocol variants. Several gas
+costs depend on decisions made outside the Solidity functions themselves. For example, a
+measurement can include contract deployment, EntryPoint deposit funding, database-level
+precontract acceptance, dispute deployment, or only a single function call. The initial
+analysis therefore established the discipline used later in the report: every measurement
+must say which part of this flow it covers.
+
+\section{Limitations of the initial implementation}
+
+The inherited implementation was already a complete and useful proof of concept, but it had
+several limitations for the goals of this project.
+
+\paragraph{Deployment cost was paid per exchange.}
+The initial architecture deploys an optimistic account for each exchange and a dispute
+account when a dispute starts. This makes the state isolation simple, but it makes deployment
+cost part of the marginal cost of the protocol. For gas optimization, this is a major issue:
+a large fixed deployment cost can dominate the cost of an honest exchange.
+
+\paragraph{The optimistic and dispute accounts were too general.}
+The initial contracts were designed to support the full sponsored protocol. This is useful
+for correctness and demonstration, but it means that exchanges pay for code paths that are
+not needed in simpler variants. For example, the normal sponsored case, no \(S\)-deposit,
+\(S=B\), \(S=V\), self-sponsored disputes, and hardcoded \(\mathsf{SHA256}\) do not all need
+the same storage fields and runtime branches. This observation motivated the later move from
+monolithic variant support to specialized contracts.
+
+\paragraph{The generic dispute verifier pays for circuit flexibility.}
+In the generic dispute path, Step 8 authenticates a supplied 64-byte gate against
+\(h_{circuit}\). This is necessary for arbitrary circuits, but it is redundant when the
+circuit is fully determined by public parameters. The \(\mathsf{desc}=\mathsf{SHA256}\)
+case is the main example: once the input length is fixed, the sequence of SHA-256 circuit
+gates is determined. This created the opportunity for the hardcoded SHA-256 dispute mode
+implemented later.
+
+\paragraph{The backend remains an orchestration and availability dependency.}
+The encrypted file and auxiliary artifacts are stored off-chain. The commitments prevent the
+backend from silently changing the data without detection, but they do not make unavailable
+data appear. A robust deployment would need a clearer availability layer, for example
+replicated storage or explicit user-side artifact management.
+
+\paragraph{The web proof-generation path was incomplete.}
+The backend API for proof computation exposed only a limited part of the dispute proof
+generation flow. Complete experimental coverage therefore required Hardhat tests and native
+Rust benchmark tools rather than relying only on the interactive web interface.
+
+\paragraph{The identity model was a laboratory model.}
+The application uses predefined Hardhat accounts and a local mapping from public addresses to
+private keys. This is appropriate for reproducibility, but it does not provide real wallet
+authentication or production-grade key management.
+
+\paragraph{Large files required the native path.}
+The Rust/WebAssembly architecture made preprocessing portable, but the browser path was not
+the right environment for very large files. For large-file measurements, especially the 1 GiB
+experiments discussed later, the native Rust command line tools were the reliable execution
+path.
+
+These limitations do not invalidate the initial implementation. On the contrary, they define
+the engineering problem addressed by this project. The inherited system already made the
+protocol executable end-to-end; the remaining question was how to restructure it so that the
+important protocol variants could be measured at the correct scope and with lower gas cost.
